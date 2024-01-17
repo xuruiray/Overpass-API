@@ -217,7 +217,7 @@ void end(const char *el)
       callback->parser_started();
       osm_element_count = 0;
     }
-    current_way.id = 0u;
+    current_way.id = 0ull;
   }
   else if (!strcmp(el, "relation"))
   {
@@ -236,7 +236,7 @@ void end(const char *el)
       callback->parser_started();
       osm_element_count = 0;
     }
-    current_relation.id = 0u;
+    current_relation.id = 0ull;
   }
   ++osm_element_count;
 }

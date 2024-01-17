@@ -254,7 +254,7 @@ namespace
       callback->parser_started();
       osm_element_count = 0;
     }
-    current_way.id = 0u;
+    current_way.id = Way::Id_Type();
   }
 
 
@@ -275,7 +275,7 @@ namespace
       callback->parser_started();
       osm_element_count = 0;
     }
-    current_relation.id = 0u;
+    current_relation.id = Relation::Id_Type();
   }
 
 

@@ -47,13 +47,14 @@ struct Relation_Entry
     return (a.ref == this->ref && a.type == this->type && a.role == this->role);
   }
 
-  Uint32_Index ref32() const { return Uint32_Index(ref.val()); }
+//  Uint32_Index ref32() const { return Uint32_Index(ref.val()); }
+  Uint64_Index ref32() const { return Uint64_Index(ref.val()); }
 };
 
 
 struct Relation
 {
-  typedef Uint32_Index Id_Type;
+  typedef Uint64_Index Id_Type;
 
   Id_Type id;
   uint32 index;
@@ -62,7 +63,7 @@ struct Relation
   std::vector< Uint31_Index > way_idxs;
   std::vector< std::pair< std::string, std::string > > tags;
 
-  Relation() : id(0u) {}
+  Relation() : id((uint64)0u) {}
 
   Relation(Id_Type id_) : id(id_) {}
 
@@ -110,12 +111,13 @@ struct Relation_Skeleton
   std::vector< Uint31_Index > node_idxs;
   std::vector< Uint31_Index > way_idxs;
 
-  Relation_Skeleton() : id(0u) {}
+  Relation_Skeleton() : id((uint64)0u) {}
 
   Relation_Skeleton(Relation::Id_Type id_) : id(id_) {}
 
   Relation_Skeleton(void* data) : id(*(Id_Type*)data)
   {
+      data = ((uint8*)data) + 4;// shanhy
     members.resize(*((uint32*)data + 1));
     node_idxs.resize(*((uint32*)data + 2), 0u);
     way_idxs.resize(*((uint32*)data + 3), 0u);
@@ -143,12 +145,15 @@ struct Relation_Skeleton
 
   uint32 size_of() const
   {
-    return 16 + 12*members.size() + 4*node_idxs.size() + 4*way_idxs.size();
-  }
+    //return 4 + 16 + 12*members.size() + 4*node_idxs.size() + 4*way_idxs.size();
+     return 20 + 12*members.size() + 4*node_idxs.size() + 4*way_idxs.size();// shanhy
+ }
 
   static uint32 size_of(void* data)
   {
-    return 16 + 12 * *((uint32*)data + 1) + 4* *((uint32*)data + 2) + 4* *((uint32*)data + 3);
+     // return 16 + 12 * *((uint32*)data + 1) + 4* *((uint32*)data + 2) + 4* *((uint32*)data + 3);
+      data = ((uint8*)data) + 4;// shanhy
+    return 20 + 12 * *((uint32*)data + 1) + 4* *((uint32*)data + 2) + 4* *((uint32*)data + 3);// shanhy
   }
 
   static Id_Type get_id(void* data)
@@ -159,6 +164,7 @@ struct Relation_Skeleton
   void to_data(void* data) const
   {
     *(Id_Type*)data = id.val();
+      data = ((uint8*)data) + 4;// shanhy
     *((uint32*)data + 1) = members.size();
     *((uint32*)data + 2) = node_idxs.size();
     *((uint32*)data + 3) = way_idxs.size();
@@ -201,10 +207,11 @@ struct Relation_Delta
   std::vector< uint > way_idxs_removed;
   std::vector< std::pair< uint, Uint31_Index > > way_idxs_added;
 
-  Relation_Delta() : id(0u), full(false) {}
+  Relation_Delta() : id((uint64)0u), full(false) {}
 
   Relation_Delta(void* data) : id(*(Id_Type*)data), full(false)
   {
+      data = ((uint8*)data) + 4;// shanhy
     if (*((uint32*)data + 1) == 0xffffffff)
     {
       full = true;
@@ -350,7 +357,7 @@ struct Relation_Delta
       expand_diff(reference.way_idxs, way_idxs_removed, way_idxs_added, result.way_idxs);
     }
     else
-      result.id = 0u;
+      result.id = (uint64)0u;
 
     return result;
   }
@@ -367,6 +374,7 @@ struct Relation_Delta
 
   static uint32 size_of(void* data)
   {
+      data = ((uint8*)data) + 4;// shanhy
     if (*((uint32*)data + 1) == 0xffffffff)
       return 20 + 12 * *((uint32*)data + 2) + 4 * *((uint32*)data + 3) + 4 * *((uint32*)data + 4);
     else
@@ -378,6 +386,7 @@ struct Relation_Delta
   void to_data(void* data) const
   {
     *(Id_Type*)data = id.val();
+      data = ((uint8*)data) + 4;// shanhy
     if (full)
     {
       *((uint32*)data + 1) = 0xffffffff;

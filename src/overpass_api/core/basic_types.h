@@ -207,6 +207,7 @@ struct Uint64
   protected:
     uint64 value;
 };
+typedef Uint64 Uint64_Index;
 
 
 struct Quad_Coord

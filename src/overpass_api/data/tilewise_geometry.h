@@ -1049,12 +1049,12 @@ inline void Tilewise_Area_Iterator::move_covering_ways(
       if (bit->first.timestamp != NOW)
       {
         target_attic_ways[bit->first.idx].push_back(Attic< Way_Skeleton >(*bit->first.way, bit->first.timestamp));
-        bit->first.way->id = Way_Skeleton::Id_Type(0u);
+        bit->first.way->id = Way_Skeleton::Id_Type((uint64)0u);
       }
       else
       {
         target_ways[bit->first.idx].push_back(*bit->first.way);
-        bit->first.way->id = Way_Skeleton::Id_Type(0u);
+        bit->first.way->id = Way_Skeleton::Id_Type((uint64)0u);
       }
     }
 //     std::cout<<"DEBUG A "<<status<<' '<<std::hex<<bit->first.idx.val()<<' '<<std::dec<<bit->first.timestamp

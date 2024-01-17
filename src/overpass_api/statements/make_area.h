@@ -54,11 +54,11 @@ class Make_Area_Statement : public Output_Statement
     static Node::Id_Type check_node_parity(const Set& pivot);
     static std::pair< Node::Id_Type, Way::Id_Type > create_area_blocks
         (std::map< Uint31_Index, std::vector< Area_Block > >& areas, bool& wraps_around_date_line,
-	 uint32 id, const Set& pivot);
+         uint64 id, const Set& pivot);// shanhy
     static uint32 shifted_lat(uint32 ll_index, uint64 coord);
     static int32 lon_(uint32 ll_index, uint64 coord);
     static void add_segment_blocks
-        (std::map< Uint31_Index, std::vector< Area_Block > >& areas, uint32 id);
+        (std::map< Uint31_Index, std::vector< Area_Block > >& areas, uint64 id);// shanhy
 
     static bool is_used_;
 };

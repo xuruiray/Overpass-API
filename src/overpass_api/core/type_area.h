@@ -44,7 +44,8 @@ struct Aligned_Segment
 
 struct Area
 {
-  typedef Uint32_Index Id_Type;
+ // typedef Uint32_Index Id_Type;
+    typedef Uint64_Index Id_Type;
 
   static Aligned_Segment segment_from_ll_quad
       (uint32 from_lat, int32 from_lon, uint32 to_lat, int32 to_lon)
@@ -219,13 +220,14 @@ struct Area
 
 struct Area_Location
 {
-  uint32 id;
+ // uint32 id;
+  uint64 id; // shanhy
   std::vector< uint32 > used_indices;
   std::vector< std::pair< std::string, std::string > > tags;
 
   Area_Location() {}
 
-  Area_Location(uint32 id_, const std::vector< uint32 >& used_indices_)
+  Area_Location(uint64 id_, const std::vector< uint32 >& used_indices_)
   : id(id_), used_indices(used_indices_) {}
 
   bool operator<(const Area_Location& a) const
@@ -255,11 +257,12 @@ struct Area_Skeleton
   Id_Type id;
   std::vector< uint32 > used_indices;
 
-  Area_Skeleton() : id(0u) {}
+  Area_Skeleton() : id((uint64)0u) {}
 
-  Area_Skeleton(void* data) : id(0u)
+  Area_Skeleton(void* data) : id((uint64)0u)
   {
     id = *(Id_Type*)data;
+    data = ((uint8*)data) + 4;// shanhy
     for (uint i(0); i < *((uint32*)data + 1); ++i)
       used_indices.push_back(*((uint32*)data + i + 2));
   }
@@ -269,12 +272,15 @@ struct Area_Skeleton
 
   uint32 size_of() const
   {
-    return 8 + 4*used_indices.size();
+   //   return 8 + 4*used_indices.size();
+    return 12 + 4*used_indices.size(); // shanhy
   }
 
   static uint32 size_of(void* data)
   {
-    return (8 + 4 * *((uint32*)data + 1));
+      data = ((uint8*)data) + 4;// shanhy
+      return (12 + 4 * *((uint32*)data + 1));// shanhy
+  //  return (8 + 4 * *((uint32*)data + 1));
   }
 
   static Id_Type get_id(void* data)
@@ -285,6 +291,7 @@ struct Area_Skeleton
   void to_data(void* data) const
   {
     *(Id_Type*)data = id.val();
+      data = ((uint8*)data) + 4;// shanhy
     *((uint32*)data + 1) = used_indices.size();
     uint i(2);
     for (std::vector< uint32 >::const_iterator it(used_indices.begin());
@@ -313,11 +320,12 @@ struct Area_Block
   Id_Type id;
   std::vector< uint64 > coors;
 
-  Area_Block() : id(0u) {}
+  Area_Block() : id((uint64)0u) {}
 
   Area_Block(void* data) : id(*(Id_Type*)data)
   {
     id = *(Id_Type*)data;
+    data = ((uint8*)data) + 4;// shanhy
     coors.resize(*((uint16*)data + 2));
     for (int i(0); i < *((uint16*)data + 2); ++i)
       coors[i] = (*(uint64*)((uint8*)data + 6 + 5*i)) & (uint64)0xffffffffffull;
@@ -328,17 +336,21 @@ struct Area_Block
 
   uint32 size_of() const
   {
-    return 6 + 5*coors.size();
+    //return 6 + 5*coors.size();
+    return 10 + 5*coors.size();// shanhy
   }
 
   static uint32 size_of(void* data)
   {
-    return (6 + 5 * *((uint16*)data + 2));
+    //return (6 + 5 * *((uint16*)data + 2));
+      data = ((uint8*)data) + 4;// shanhy
+    return (10 + 5 * *((uint16*)data + 2));// shanhy
   }
 
   void to_data(void* data) const
   {
     *(Id_Type*)data = id.val();
+      data = ((uint8*)data) + 4;// shanhy
     *((uint16*)data + 2) = coors.size();
     for (uint i(0); i < coors.size(); ++i)
     {

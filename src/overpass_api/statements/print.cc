@@ -267,6 +267,22 @@ void print_item(Extra_Data& extra_data, Output_Handler& output, uint32 ll_upper,
       tags, meta, extra_data.get_users(), Output_Mode(extra_data.mode), extra_data.action);
 }
 
+#include <chrono>
+
+void get_Time(int &year, int &month, int &day, int &hour, int &min, int &second)
+{
+    struct tm tm;
+    time_t timep;
+    timep = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+    tm = *localtime(&timep);
+    year = tm.tm_year + 1900;
+    month = tm.tm_mon + 1;
+    day = tm.tm_mday;
+    hour = tm.tm_hour;
+    min = tm.tm_min;
+    second = tm.tm_sec;
+}
 
 void print_item(Extra_Data& extra_data, Output_Handler& output, uint32 ll_upper, const Way_Skeleton& skel,
                     const std::vector< std::pair< std::string, std::string > >* tags = 0,

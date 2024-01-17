@@ -236,8 +236,8 @@ std::string process_members(const std::string& raw_template, Node::Id_Type ref)
 }
 
 
-std::string process_members(const std::string& raw_template, uint32 id, const Relation_Entry& entry,
-		       const std::map< uint32, std::string >& roles)
+std::string process_members(const std::string& raw_template, uint64 id, const Relation_Entry& entry,
+                       const std::map< uint32, std::string >& roles)// shanhy
 {
   std::ostringstream result;
   std::string::size_type old_pos = 0;
@@ -276,7 +276,7 @@ std::string process_members(const std::string& raw_template, uint32 id, const Re
 }
 
 
-std::string process_tags(const std::string& raw_template, uint32 id, const std::string& key, const std::string& value)
+std::string process_tags(const std::string& raw_template, uint64 id, const std::string& key, const std::string& value)// shanhy
 {
   std::ostringstream result;
   std::string::size_type old_pos = 0;
@@ -310,7 +310,7 @@ std::string process_tags(const std::string& raw_template, uint32 id, const std::
 }
 
 
-std::string process_coords(const std::string& raw_template, uint32 id, double lat, double lon)
+std::string process_coords(const std::string& raw_template, uint64 id, double lat, double lon)// shanhy
 {
   std::ostringstream result;
   std::string::size_type old_pos = 0;
@@ -342,8 +342,8 @@ std::string process_coords(const std::string& raw_template, uint32 id, double la
 }
 
 
-std::string process_coords(const std::string& raw_template, uint32 id,
-		      double south, double west, double north, double east, uint zoom)
+std::string process_coords(const std::string& raw_template, uint64 id,
+                      double south, double west, double north, double east, uint zoom)// shanhy
 {
   std::ostringstream result;
   std::string::size_type old_pos = 0;

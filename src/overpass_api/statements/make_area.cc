@@ -137,9 +137,9 @@ Node::Id_Type Make_Area_Statement::check_node_parity(const Set& pivot)
 }
 
 
-std::pair< Node::Id_Type, Uint32_Index > Make_Area_Statement::create_area_blocks
+std::pair< Node::Id_Type, Way::Id_Type > Make_Area_Statement::create_area_blocks
     (std::map< Uint31_Index, std::vector< Area_Block > >& areas, bool& wraps_around_date_line,
-     uint32 id, const Set& pivot)
+     uint64 id, const Set& pivot)// shanhy
 {
   std::vector< Node > nodes;
   for (std::map< Uint32_Index, std::vector< Node_Skeleton > >::const_iterator
@@ -175,7 +175,7 @@ int32 Make_Area_Statement::lon_(uint32 ll_index, uint64 coord)
 }
 
 void Make_Area_Statement::add_segment_blocks
-    (std::map< Uint31_Index, std::vector< Area_Block > >& area_blocks, uint32 id)
+    (std::map< Uint31_Index, std::vector< Area_Block > >& area_blocks, uint64 id)// shanhy
 {
   /* We use that more northern segments always have bigger indices.
     Thus we can collect each block's end points and add them, if they do not

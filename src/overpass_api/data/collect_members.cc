@@ -821,7 +821,7 @@ uint32 determine_role_id(Transaction& transaction, const std::string& role)
 
 
 bool add_way_to_area_blocks(const std::vector< Quad_Coord >& coords,
-                            uint32 id, std::map< Uint31_Index, std::vector< Area_Block > >& areas)
+                            uint64 id, std::map< Uint31_Index, std::vector< Area_Block > >& areas)// shanhy
 {
   bool wraps_around_date_line = false;
 

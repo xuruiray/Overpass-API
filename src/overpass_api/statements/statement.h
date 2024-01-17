@@ -45,6 +45,9 @@ class Query_Constraint
 			 const std::vector< Uint64 >& ids, bool invert_ids) { return false; }
     virtual bool collect(Resource_Manager& rman, Set& into,
 			 int type, const std::vector< Uint32_Index >& ids, bool invert_ids) { return false; }
+    // shanhy
+    virtual bool collect(Resource_Manager& rman, Set& into,
+                         int type, const std::vector< Uint64_Index >& ids, bool invert_ids) { return false; }
     virtual bool collect(Resource_Manager& rman, Set& into) { return false; }
 
     virtual bool get_ranges
@@ -83,7 +86,14 @@ class Query_Constraint
 			  int type,
                           const std::vector< Uint32_Index >& ids,
                           bool invert_ids)
-      { return false; }
+    { return false; }
+    // shanhy
+    virtual bool get_data(const Statement& query, Resource_Manager& rman, Set& into,
+                          const Ranges< Uint31_Index >& ranges,
+                          int type,
+                          const std::vector< Uint64_Index >& ids,
+                          bool invert_ids)
+    { return false; }
 
     // Cheap filter. No health_check in between needed and should be called first.
     virtual void filter(Resource_Manager& rman, Set& into) {}

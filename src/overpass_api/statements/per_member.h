@@ -450,7 +450,7 @@ The syntax is
 
 struct Angle_Eval_Task : public Eval_Task
 {
-  Angle_Eval_Task() : cache_way_ref(0u), cache_geom_ref(0) {}
+  Angle_Eval_Task() : cache_way_ref((uint64)0u), cache_geom_ref(0) {}
 
   virtual std::string eval(const std::string* key) const { return ""; }
 

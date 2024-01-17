@@ -530,7 +530,7 @@ void Polygon_Query_Statement::collect_ways
       if (ways_inside[it2->id])
       {
         cur_result.push_back(*it2);
-        it2->id = Way::Id_Type(0u);
+        it2->id = Way::Id_Type((uint64)0u);
       }
     }
     result[it->first].swap(cur_result);

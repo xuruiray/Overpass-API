@@ -155,7 +155,7 @@ void end(const char *el)
       callback->parser_started();
       osm_element_count = 0;
     }
-    current_way.id = 0u;
+    current_way.id = (uint64)0u;
   }
   ++osm_element_count;
 }

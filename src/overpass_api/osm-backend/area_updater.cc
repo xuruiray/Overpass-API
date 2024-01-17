@@ -187,7 +187,7 @@ void Area_Updater::prepare_delete_tags
 }
 
 Area_Location* binary_search_for_id
-    (std::vector< std::pair< Area_Location, Uint31_Index > >& vect, uint32 id)
+    (std::vector< std::pair< Area_Location, Uint31_Index > >& vect, uint64 id)// shanhy
 {
   uint32 lower(0);
   uint32 upper(vect.size());

@@ -836,7 +836,7 @@ void compute_new_attic_skeletons
   // Create full_attic and idx_lists by going through new_data and filling the gaps
   std::vector< Data_By_Id< Relation_Skeleton >::Entry >::const_iterator next_it
       = new_data.data.begin();
-  Relation_Skeleton::Id_Type last_id = Relation_Skeleton::Id_Type(0u);
+  Relation_Skeleton::Id_Type last_id = Relation_Skeleton::Id_Type((uint64)0u);
   for (std::vector< Data_By_Id< Relation_Skeleton >::Entry >::const_iterator
       it = new_data.data.begin(); it != new_data.data.end(); ++it)
   {
@@ -979,7 +979,7 @@ std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > > co
 
   std::vector< Data_By_Id< Relation_Skeleton >::Entry >::const_iterator next_it
       = new_data.data.begin();
-  Relation_Skeleton::Id_Type last_id = Relation_Skeleton::Id_Type(0u);
+  Relation_Skeleton::Id_Type last_id = Relation_Skeleton::Id_Type((uint64)0u);
   for (std::vector< Data_By_Id< Relation_Skeleton >::Entry >::const_iterator
       it = new_data.data.begin(); it != new_data.data.end(); ++it)
   {

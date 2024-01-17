@@ -34,7 +34,7 @@
 
 struct Way
 {
-  typedef Uint32_Index Id_Type;
+  typedef Uint64_Index Id_Type;
 
   Id_Type id;
   uint32 index;
@@ -43,13 +43,13 @@ struct Way
   std::vector< Quad_Coord > geometry;
   std::vector< std::pair< std::string, std::string > > tags;
 
-  Way() : id(0u), index(0) {}
+  Way() : id(0ull), index(0) {}
 
-  Way(uint32 id_)
+  Way(uint64 id_)
   : id(id_), index(0)
   {}
 
-  Way(uint32 id_, uint32 index_, const std::vector< Node::Id_Type >& nds_)
+  Way(uint64 id_, uint32 index_, const std::vector< Node::Id_Type >& nds_)
   : id(id_), index(index_), nds(nds_) {}
 
   static uint32 calc_index(const std::vector< uint32 >& nd_idxs)
@@ -92,12 +92,13 @@ struct Way_Skeleton
   std::vector< Node::Id_Type > nds;
   std::vector< Quad_Coord > geometry;
 
-  Way_Skeleton() : id(0u) {}
+  Way_Skeleton() : id(0ull) {}
 
   Way_Skeleton(Way::Id_Type id_) : id(id_) {}
 
   Way_Skeleton(void* data) : id(*(Id_Type*)data)
   {
+      data = ((uint8*)data) + 4;// shanhy
     nds.reserve(*((uint16*)data + 2));
     for (int i(0); i < *((uint16*)data + 2); ++i)
       nds.push_back(*(uint64*)((uint16*)data + 4 + 4*i));
@@ -115,12 +116,15 @@ struct Way_Skeleton
 
   uint32 size_of() const
   {
-    return 8 + 8*nds.size() + 8*geometry.size();
+      return 12 + 8*nds.size() + 8*geometry.size(); // shanhy
+  //return 8 + 8*nds.size() + 8*geometry.size();
   }
 
   static uint32 size_of(void* data)
   {
-    return (8 + 8 * *((uint16*)data + 2) + 8 * *((uint16*)data + 3));
+      data = ((uint8*)data) + 4;// shanhy
+      return (12 + 8 * *((uint16*)data + 2) + 8 * *((uint16*)data + 3)); // shanhy
+  //return (8 + 8 * *((uint16*)data + 2) + 8 * *((uint16*)data + 3));
   }
 
   static Id_Type get_id(void* data)
@@ -131,6 +135,7 @@ struct Way_Skeleton
   void to_data(void* data) const
   {
     *(Id_Type*)data = id.val();
+      data = ((uint8*)data) + 4;// shanhy
     *((uint16*)data + 2) = nds.size();
     *((uint16*)data + 3) = geometry.size();
     for (uint i(0); i < nds.size(); ++i)
@@ -166,10 +171,11 @@ struct Way_Delta
   std::vector< uint > geometry_removed;
   std::vector< std::pair< uint, Quad_Coord > > geometry_added;
 
-  Way_Delta() : id(0u), full(false) {}
+  Way_Delta() : id(0ull), full(false) {}
 
   Way_Delta(void* data) : id(*(Id_Type*)data), full(false)
   {
+      data = ((uint8*)data) + 4;// shanhy
     if (*((uint32*)data + 1) == 0xffffffff)
     {
       full = true;
@@ -313,7 +319,7 @@ struct Way_Delta
       }
     }
     else
-      result.id = 0u;
+      result.id = (uint64)0u;
 
     return result;
   }
@@ -321,24 +327,36 @@ struct Way_Delta
   uint32 size_of() const
   {
     if (full)
-      return 16 + 8*nds_added.size() + 8*geometry_added.size();
+      return 20 + 8 * nds_added.size() + 8 * geometry_added.size();
     else
-      return 20 + 4*nds_removed.size() + 12*nds_added.size()
-          + 4*geometry_removed.size() + 12*geometry_added.size();
+      return 24 + 4 * nds_removed.size() + 12 * nds_added.size()
+       + 4 * geometry_removed.size() + 12 * geometry_added.size();
+    // if (full)
+    //   return 16 + 8*nds_added.size() + 8*geometry_added.size();
+    // else
+    //   return 20 + 4*nds_removed.size() + 12*nds_added.size()
+    //       + 4*geometry_removed.size() + 12*geometry_added.size();
   }
 
   static uint32 size_of(void* data)
   {
+      data = ((uint8*)data) + 4;// shanhy
     if (*((uint32*)data + 1) == 0xffffffff)
-      return 16 + 8 * *((uint32*)data + 2) + 8 * *((uint32*)data + 3);
+      return 20 + 8 * *((uint32*)data + 2) + 8 * *((uint32*)data + 3);
     else
-      return 20 + 4 * *((uint32*)data + 1) + 12 * *((uint32*)data + 2)
+      return 24 + 4 * *((uint32*)data + 1) + 12 * *((uint32*)data + 2)
           + 4 * *((uint32*)data + 3) + 12 * *((uint32*)data + 4);
+    // if (*((uint32*)data + 1) == 0xffffffff)
+    //   return 16 + 8 * *((uint32*)data + 2) + 8 * *((uint32*)data + 3);
+    // else
+    //   return 20 + 4 * *((uint32*)data + 1) + 12 * *((uint32*)data + 2)
+    //       + 4 * *((uint32*)data + 3) + 12 * *((uint32*)data + 4);
   }
 
   void to_data(void* data) const
   {
     *(Id_Type*)data = id.val();
+      data = ((uint8*)data) + 4;// shanhy
     if (full)
     {
       *((uint32*)data + 1) = 0xffffffff;

@@ -154,11 +154,18 @@ class Pivot_Constraint : public Query_Constraint
                           const Ranges< Uint32_Index >& ranges,
                           const std::vector< Node::Id_Type >& ids,
                           bool invert_ids);
-    virtual bool get_data(const Statement& query, Resource_Manager& rman, Set& into,
+    // virtual bool get_data(const Statement& query, Resource_Manager& rman, Set& into,
+    //                       const Ranges< Uint31_Index >& ranges,
+    //                       int type,
+    //                       const std::vector< Uint32_Index >& ids,
+    //                       bool invert_ids);
+   //shanhy                       
+   virtual bool get_data(const Statement& query, Resource_Manager& rman, Set& into,
                           const Ranges< Uint31_Index >& ranges,
                           int type,
-                          const std::vector< Uint32_Index >& ids,
+                          const std::vector< Uint64_Index >& ids,
                           bool invert_ids);
+
     void filter(Resource_Manager& rman, Set& into);
     virtual ~Pivot_Constraint() {}
 
@@ -195,14 +202,13 @@ bool Pivot_Constraint::get_data
   return true;
 }
 
-
 bool Pivot_Constraint::get_data
     (const Statement& query, Resource_Manager& rman, Set& into,
      const Ranges< Uint31_Index >& ranges,
      int type,
-     const std::vector< Uint32_Index >& ids,
+     const std::vector< Uint64_Index >& ids,
      bool invert_ids)
-{
+{ //shanhy
   const Set* input_set = rman.get_set(stmt->get_input());
 
   if (type & QUERY_WAY)

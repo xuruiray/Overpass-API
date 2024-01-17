@@ -55,9 +55,9 @@ struct Area_Updater : public Area_Usage_Listener
 
   ~Area_Updater() { flush(); }
 
-  void set_id_deleted(uint32 id) { ids_to_modify.insert(id); }
-  void set_area
-      (uint32 id, const Uint31_Index& index,
+  void set_id_deleted(uint64 id) { ids_to_modify.insert(id); }// shanhy
+  void set_area// shanhy
+      (uint64 id, const Uint31_Index& index,
        const std::vector< std::pair< std::string, std::string > >& tags,
        const std::set< uint32 >& used_indices);
   void set_area(const Uint31_Index& index, const Area_Location& area);
@@ -119,9 +119,9 @@ inline void Area_Updater::flush()
 }
 
 inline void Area_Updater::set_area
-    (uint32 id, const Uint31_Index& index,
+    (uint64 id, const Uint31_Index& index,
      const std::vector< std::pair< std::string, std::string > >& tags,
-     const std::set< uint32 >& used_indices)
+     const std::set< uint32 >& used_indices)// shanhy
 {
   ids_to_modify.insert(id);
 

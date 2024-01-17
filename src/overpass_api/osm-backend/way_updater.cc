@@ -320,7 +320,7 @@ void compute_new_attic_skeletons
   // Create full_attic and idx_lists by going through new_data and filling the gaps
   std::vector< Data_By_Id< Way_Skeleton >::Entry >::const_iterator next_it
       = new_data.data.begin();
-  Way_Skeleton::Id_Type last_id = Way_Skeleton::Id_Type(0u);
+  Way_Skeleton::Id_Type last_id = Way_Skeleton::Id_Type((uint64)0u);
   for (std::vector< Data_By_Id< Way_Skeleton >::Entry >::const_iterator
       it = new_data.data.begin(); it != new_data.data.end(); ++it)
   {
@@ -713,7 +713,7 @@ std::map< Timestamp, std::set< Change_Entry< Way_Skeleton::Id_Type > > > compute
 
   std::vector< Data_By_Id< Way_Skeleton >::Entry >::const_iterator next_it
       = new_data.data.begin();
-  Way_Skeleton::Id_Type last_id = Way_Skeleton::Id_Type(0u);
+  Way_Skeleton::Id_Type last_id = Way_Skeleton::Id_Type((uint64)0u);
   for (std::vector< Data_By_Id< Way_Skeleton >::Entry >::const_iterator
       it = new_data.data.begin(); it != new_data.data.end(); ++it)
   {

@@ -925,7 +925,7 @@ void Area_Query_Statement::collect_ways
       for (std::map< Area_Skeleton::Id_Type, std::vector< Area_Block > >::const_iterator it = areas.begin();
 	   it != areas.end(); ++it)
       {
-	if (ways_inside[Way::Id_Type(sit->id)])
+        if (ways_inside[Way::Id_Type(sit->id)])// shanhy
 	  break;
         for (std::vector< Area_Block >::const_iterator it2 = it->second.begin(); it2 != it->second.end();
 	     ++it2)
@@ -973,7 +973,7 @@ void Area_Query_Statement::collect_ways
       if (ways_inside[it2->id])
       {
 	cur_result.push_back(*it2);
-	it2->id = Way::Id_Type(0u);
+        it2->id = Way::Id_Type((uint64)0u);
       }
     }
     result[it->first].swap(cur_result);

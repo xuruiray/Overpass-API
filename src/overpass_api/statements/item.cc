@@ -29,8 +29,10 @@ class Item_Constraint : public Query_Constraint
 
     bool collect_nodes(Resource_Manager& rman, Set& into,
 		 const std::vector< Uint64 >& ids, bool invert_ids);
+    // bool collect(Resource_Manager& rman, Set& into, int type,
+		//  const std::vector< Uint32_Index >& ids, bool invert_ids);
     bool collect(Resource_Manager& rman, Set& into, int type,
-		 const std::vector< Uint32_Index >& ids, bool invert_ids);
+		 const std::vector< Uint64_Index >& ids, bool invert_ids);// shanhy
     bool collect(Resource_Manager& rman, Set& into);
     void filter(Resource_Manager& rman, Set& into);
     virtual ~Item_Constraint() {}
@@ -94,9 +96,25 @@ bool Item_Constraint::collect_nodes(Resource_Manager& rman, Set& into,
   return true;
 }
 
+#include <chrono>
+
+void getTime(int &year, int &month, int &day, int &hour, int &min, int &second)
+{
+    struct tm *tm;
+    time_t timep;
+    timep = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+    tm = localtime(&timep);
+    year = tm->tm_year + 1900;
+    month = tm->tm_mon + 1;
+    day = tm->tm_mday;
+    hour = tm->tm_hour;
+    min = tm->tm_min;
+    second = tm->tm_sec;
+}
 
 bool Item_Constraint::collect(Resource_Manager& rman, Set& into,
-			      int type, const std::vector< Uint32_Index >& ids, bool invert_ids)
+			      int type, const std::vector< Uint64_Index >& ids, bool invert_ids)
 {
   const Set* input = rman.get_set(item->get_input_name());
   if (input)

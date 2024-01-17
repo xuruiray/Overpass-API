@@ -55,6 +55,7 @@ struct Relation_Entry
 struct Relation
 {
   typedef Uint64_Index Id_Type;
+  typedef Uint31_Index Index;
 
   Id_Type id;
   uint32 index;
@@ -117,7 +118,6 @@ struct Relation_Skeleton
 
   Relation_Skeleton(void* data) : id(*(Id_Type*)data)
   {
-      data = ((uint8*)data) + 4;// shanhy
     members.resize(*((uint32*)data + 1));
     node_idxs.resize(*((uint32*)data + 2), 0u);
     way_idxs.resize(*((uint32*)data + 3), 0u);

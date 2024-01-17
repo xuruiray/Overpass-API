@@ -377,36 +377,46 @@ class Area_Usage_Listener
 
 class Osm_Backend_Callback
 {
-  public:
-    virtual void update_started() = 0;
-    virtual void attic_update_started() = 0;
-    virtual void compute_started() = 0;
-    virtual void compute_attic_started() = 0;
-    virtual void compute_finished() = 0;
-    virtual void compute_attic_finished() = 0;
-    virtual void compute_indexes_finished() = 0;
-    virtual void update_ids_finished() = 0;
-    virtual void update_coords_finished() = 0;
-    virtual void prepare_delete_tags_finished() = 0;
-    virtual void undeleted_finished() = 0;
-    virtual void meta_finished() = 0;
-    virtual void tags_local_finished() = 0;
-    virtual void tags_global_finished() = 0;
-    virtual void flush_roles_finished() = 0;
-    virtual void changelog_finished() = 0;
-    virtual void update_finished() = 0;
-    virtual void current_update_finished() = 0;
-    virtual void partial_started() = 0;
-    virtual void partial_finished() = 0;
+public:
+  virtual ~Osm_Backend_Callback() {}
+  
+  virtual void update_started() = 0;
+  virtual void attic_update_started() = 0;
+  virtual void compute_started() = 0;
+  virtual void compute_attic_started() = 0;
+  virtual void compute_finished() = 0;
+  virtual void compute_attic_finished() = 0;
+  virtual void compute_indexes_finished() = 0;
+  virtual void update_ids_finished() = 0;
+  virtual void update_coords_finished() = 0;
+  virtual void prepare_delete_tags_finished() = 0;
+  virtual void undeleted_finished() = 0;
+  virtual void meta_finished() = 0;
+  virtual void tags_local_finished() = 0;
+  virtual void tags_global_finished() = 0;
+  virtual void flush_roles_finished() = 0;
+  virtual void changelog_finished() = 0;
+  virtual void update_finished() = 0;
+  virtual void current_update_finished() = 0;
+  virtual void partial_started() = 0;
+  virtual void partial_finished() = 0;
 
-    virtual void parser_started() = 0;
-    virtual void node_elapsed(Node::Id_Type id) = 0;
-    virtual void nodes_finished() = 0;
-    virtual void way_elapsed(Way::Id_Type id) = 0;
-    virtual void ways_finished() = 0;
-    virtual void relation_elapsed(Relation::Id_Type id) = 0;
-    virtual void relations_finished() = 0;
-    virtual void parser_succeeded() = 0;
+  virtual void parser_started() = 0;
+  virtual void node_elapsed(Node::Id_Type id) = 0;
+  virtual void nodes_finished() = 0;
+  virtual void way_elapsed(Way::Id_Type id) = 0;
+  virtual void ways_finished() = 0;
+  virtual void relation_elapsed(Relation::Id_Type id) = 0;
+  virtual void relations_finished() = 0;
+  virtual void parser_succeeded() = 0;
+
+  virtual void migration_started(const std::string& filename) = 0;
+  virtual void migration_flush() = 0;
+  virtual void migration_flush_single_kv() = 0;
+  virtual void migration_write_frequent() = 0;
+  virtual void migration_completed() = 0;
+
+  virtual void set_db_dir(const std::string& db_dir) = 0;
 };
 
 
@@ -683,21 +693,25 @@ struct Timestamp
     return out.str();
   }
 
-  uint32 size_of() const
-  {
-    return 5;
-  }
+  static bool equal(void* lhs, void* rhs) { return !memcmp(lhs, rhs, 5); }
+  bool less(void* rhs) const
+  { return (timestamp>>32) < *(((uint8*)rhs) + 4)
+        || ((timestamp>>32) == *(((uint8*)rhs) + 4) && (timestamp & 0xffffffffull) < *(uint32*)rhs); }
+  bool leq(void* rhs) const
+  { return (timestamp>>32) < *(((uint8*)rhs) + 4)
+        || ((timestamp>>32) == *(((uint8*)rhs) + 4) && (timestamp & 0xffffffffull) <= *(uint32*)rhs); }
+  bool equal(void* rhs) const
+  { return (timestamp>>32) == *(((uint8*)rhs) + 4) && (timestamp & 0xffffffffull) == *(uint32*)rhs; }
 
-  static uint32 size_of(void* data)
-  {
-    return 5;
-  }
+  uint32 size_of() const { return 5; }
+  static constexpr uint32 const_size() { return 5; }
+  static uint32 size_of(void* data) { return 5; }
 
   void to_data(void* data) const
   {
     void* pos = (uint8*)data;
     *(uint32*)(pos) = (timestamp & 0xffffffffull);
-    *(uint8*)((uint8*)pos+4) = ((timestamp & 0xff00000000ull)>>32);
+    *(((uint8*)pos)+4) = ((timestamp & 0xff00000000ull)>>32);
   }
 
   bool operator<(const Timestamp& rhs) const

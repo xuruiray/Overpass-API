@@ -1,5 +1,5 @@
 
-bin_mandatory = bin/osm3s_query bin/dispatcher bin/update_database bin/update_from_dir
+bin_mandatory = bin/osm3s_query bin/dispatcher bin/migrate_database bin/update_database bin/update_from_dir
 bin_script_mandatory = \
   bin/apply_osc_to_db.sh\
   bin/download_clone.sh\
@@ -174,16 +174,18 @@ libsettings_la_LIBADD =
 osm_updater_cc = overpass_api/osm-backend/meta_updater.cc overpass_api/osm-backend/basic_updater.cc overpass_api/osm-backend/node_updater.cc overpass_api/osm-backend/way_updater.cc overpass_api/osm-backend/relation_updater.cc overpass_api/osm-backend/osm_updater.cc overpass_api/core/four_field_index.cc overpass_api/core/geometry.cc expat/escape_xml.cc
 
 
+bin_migrate_database_SOURCES = ${osm_updater_cc} overpass_api/osm-backend/migrate_database.cc template_db/types.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
+bin_migrate_database_LDADD = libdata.la libdispatcher.la libexpatwrapper.la liboutput.la libsettings.la @COMPRESS_LIBS@
 bin_update_database_SOURCES = ${osm_updater_cc} overpass_api/osm-backend/update_database.cc template_db/types.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
 bin_update_database_LDADD = libdata.la libdispatcher.la libexpatwrapper.la liboutput.la libsettings.la @COMPRESS_LIBS@
 bin_update_from_dir_SOURCES = ${osm_updater_cc} overpass_api/osm-backend/update_from_dir.cc template_db/types.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
 bin_update_from_dir_LDADD = libdata.la libdispatcher.la libexpatwrapper.la liboutput.la libsettings.la @COMPRESS_LIBS@
-bin_osm3s_query_SOURCES = ${statements_cc} ${output_formats_cc} overpass_api/frontend/basic_formats.cc overpass_api/frontend/output_handler.cc overpass_api/frontend/console_output.cc overpass_api/frontend/web_output.cc overpass_api/dispatch/osm3s_query.cc overpass_api/osm-backend/clone_database.cc overpass_api/core/four_field_index.cc overpass_api/core/geometry.cc overpass_api/dispatch/scripting_core.cc overpass_api/dispatch/dispatcher_stub.cc template_db/types.cc overpass_api/frontend/decode_text.cc overpass_api/frontend/map_ql_parser.cc overpass_api/frontend/tokenizer_utils.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
+bin_osm3s_query_SOURCES = ${statements_cc} ${output_formats_cc} overpass_api/frontend/basic_formats.cc overpass_api/frontend/hash_request.cc overpass_api/frontend/output_handler.cc overpass_api/frontend/console_output.cc overpass_api/frontend/web_output.cc overpass_api/dispatch/osm3s_query.cc overpass_api/osm-backend/clone_database.cc overpass_api/core/four_field_index.cc overpass_api/core/geometry.cc overpass_api/dispatch/scripting_core.cc overpass_api/dispatch/dispatcher_stub.cc template_db/types.cc overpass_api/frontend/decode_text.cc overpass_api/frontend/map_ql_parser.cc overpass_api/frontend/tokenizer_utils.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
 bin_osm3s_query_LDADD = libcore.la libdata.la @COMPRESS_LIBS@
 bin_dispatcher_SOURCES = template_db/dispatcher.cc template_db/file_tools.cc template_db/transaction_insulator.cc template_db/types.cc overpass_api/dispatch/dispatcher_server.cc
 bin_dispatcher_LDADD = libdispatcher.la libfrontend.la libsettings.la
 
-cgi_bin_interpreter_SOURCES = ${statements_cc} ${output_formats_cc} overpass_api/frontend/basic_formats.cc overpass_api/frontend/output_handler.cc overpass_api/dispatch/web_query.cc overpass_api/core/four_field_index.cc overpass_api/core/geometry.cc overpass_api/dispatch/scripting_core.cc overpass_api/dispatch/dispatcher_stub.cc template_db/types.cc overpass_api/frontend/decode_text.cc overpass_api/frontend/map_ql_parser.cc overpass_api/frontend/tokenizer_utils.cc overpass_api/frontend/web_output.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
+cgi_bin_interpreter_SOURCES = ${statements_cc} ${output_formats_cc} overpass_api/frontend/basic_formats.cc overpass_api/frontend/hash_request.cc overpass_api/frontend/output_handler.cc overpass_api/dispatch/web_query.cc overpass_api/core/four_field_index.cc overpass_api/core/geometry.cc overpass_api/dispatch/scripting_core.cc overpass_api/dispatch/dispatcher_stub.cc template_db/types.cc overpass_api/frontend/decode_text.cc overpass_api/frontend/map_ql_parser.cc overpass_api/frontend/tokenizer_utils.cc overpass_api/frontend/web_output.cc template_db/zlib_wrapper.cc template_db/lz4_wrapper.cc
 cgi_bin_interpreter_LDADD = libcore.la libdata.la @COMPRESS_LIBS@
 cgi_bin_status_SOURCES = overpass_api/dispatch/public_status.cc template_db/types.cc
 cgi_bin_status_LDADD = libdispatcherclient.la libfrontend.la libsettings.la
@@ -210,7 +212,7 @@ bin_bbox_brim_query_LDADD = libexpatwrapper.la
 bin_translate_xapi_SOURCES = expat/translate_xapi.cc expat/escape_xml.cc
 bin_translate_xapi_LDADD = 
 
-distdir = osm-3s_v0.7.57.2
+distdir = osm-3s_v0.7.60.6
 
 nobase_dist_HEADERS = \
   expat/escape_json.h\
@@ -244,6 +246,7 @@ nobase_dist_HEADERS = \
   overpass_api/data/relation_geometry_store.h\
   overpass_api/data/set_comparison.h\
   overpass_api/data/tag_store.h\
+  overpass_api/data/tags_global_reader.h\
   overpass_api/data/tilewise_geometry.h\
   overpass_api/data/user_data_cache.h\
   overpass_api/data/utils.h\
@@ -255,6 +258,7 @@ nobase_dist_HEADERS = \
   overpass_api/frontend/cgi-helper.h\
   overpass_api/frontend/console_output.h\
   overpass_api/frontend/decode_text.h\
+  overpass_api/frontend/hash_request.h\
   overpass_api/frontend/map_ql_parser.h\
   overpass_api/frontend/output.h\
   overpass_api/frontend/output_handler.h\
@@ -269,6 +273,7 @@ nobase_dist_HEADERS = \
   overpass_api/osm-backend/node_updater.h\
   overpass_api/osm-backend/osm_updater.h\
   overpass_api/osm-backend/relation_updater.h\
+  overpass_api/osm-backend/tags_global_writer.h\
   overpass_api/osm-backend/tags_updater.h\
   overpass_api/osm-backend/way_updater.h\
   overpass_api/output_formats/output_csv.h\
@@ -327,6 +332,7 @@ nobase_dist_HEADERS = \
   pt_diagrams/read_input.h\
   pt_diagrams/test_output.h\
   template_db/block_backend.h\
+  template_db/block_backend_write.h\
   template_db/dispatcher_client.h\
   template_db/dispatcher.h\
   template_db/file_blocks.h\
@@ -349,6 +355,10 @@ EXTRA_DIST = \
   html/no_frills.html\
   html/public_transport.html\
   html/query_form.html\
+  munin/osm_db_lag\
+  munin/osm_db_request_count\
+  munin/osm_mem_status\
+  munin/osm_timeout_status\
   rules/areas.osm3s\
   rules/areas_delta.osm3s
 

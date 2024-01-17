@@ -21,6 +21,9 @@
 #include "../../template_db/dispatcher.h"
 #include "../../template_db/dispatcher_client.h"
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -31,10 +34,14 @@ struct Default_Dispatcher_Logger : public Dispatcher_Logger
 {
   Default_Dispatcher_Logger(Logger& logger_) : logger(&logger_) {}
 
-  virtual void write_start(pid_t pid, const std::vector< pid_t >& registered);
+  virtual void terminate_triggered(int32 countdown, pid_t writing_process);
+  virtual void write_start(pid_t pid, const std::vector< ::pid_t >& registered);
   virtual void write_rollback(pid_t pid);
   virtual void write_pending(pid_t pid, const std::set< pid_t >& reading);
   virtual void write_commit(pid_t pid);
+  virtual void migrate_start(pid_t pid, const std::vector< ::pid_t >& registered);
+  virtual void migrate_rollback(pid_t pid);
+  virtual void migrate_commit(pid_t pid);
   virtual void request_read_and_idx(pid_t pid, uint32 max_allowed_time, uint64 max_allowed_space);
   virtual void read_idx_finished(pid_t pid);
   virtual void prolongate(pid_t pid);
@@ -49,15 +56,24 @@ struct Default_Dispatcher_Logger : public Dispatcher_Logger
     Logger* logger;
 };
 
-void Default_Dispatcher_Logger::write_start(pid_t pid, const std::vector< pid_t >& registered)
+
+void Default_Dispatcher_Logger::terminate_triggered(int32 countdown, pid_t writing_process)
+{
+  std::ostringstream out;
+  out<<"Shutdown triggered. Waiting "<<countdown<<" cycles for writing process "<<writing_process<<'.';
+  logger->annotated_log(out.str());
+}
+
+void Default_Dispatcher_Logger::write_start(pid_t pid, const std::vector< ::pid_t >& registered)
 {
   std::ostringstream out;
   out<<"write_start of process "<<pid<<". Considered as reading:";
-  for (std::vector< pid_t >::const_iterator it = registered.begin(); it != registered.end(); ++it)
-    out<<' '<<*it;
+  for (auto i : registered)
+    out<<' '<<i;
   out<<'.';
   logger->annotated_log(out.str());
 }
+
 
 void Default_Dispatcher_Logger::write_rollback(pid_t pid)
 {
@@ -66,15 +82,17 @@ void Default_Dispatcher_Logger::write_rollback(pid_t pid)
   logger->annotated_log(out.str());
 }
 
+
 void Default_Dispatcher_Logger::write_pending(pid_t pid, const std::set< pid_t >& registered)
 {
   std::ostringstream out;
   out<<"write_pending of process "<<pid<<". Considered as reading:";
-  for (std::set< pid_t >::const_iterator it = registered.begin(); it != registered.end(); ++it)
-    out<<' '<<*it;
+  for (auto i : registered)
+    out<<' '<<i;
   out<<'.';
   logger->annotated_log(out.str());
 }
+
 
 void Default_Dispatcher_Logger::write_commit(pid_t pid)
 {
@@ -82,6 +100,34 @@ void Default_Dispatcher_Logger::write_commit(pid_t pid)
   out<<"write_commit of process "<<pid<<'.';
   logger->annotated_log(out.str());
 }
+
+
+void Default_Dispatcher_Logger::migrate_start(pid_t pid, const std::vector< ::pid_t >& registered)
+{
+  std::ostringstream out;
+  out<<"migrate_start of process "<<pid<<". Considered as reading:";
+  for (auto i : registered)
+    out<<' '<<i;
+  out<<'.';
+  logger->annotated_log(out.str());
+}
+
+
+void Default_Dispatcher_Logger::migrate_rollback(pid_t pid)
+{
+  std::ostringstream out;
+  out<<"migrate_rollback of process "<<pid<<'.';
+  logger->annotated_log(out.str());
+}
+
+
+void Default_Dispatcher_Logger::migrate_commit(pid_t pid)
+{
+  std::ostringstream out;
+  out<<"migrate_commit of process "<<pid<<'.';
+  logger->annotated_log(out.str());
+}
+
 
 void Default_Dispatcher_Logger::request_read_and_idx
     (pid_t pid, uint32 max_allowed_time, uint64 max_allowed_space)
@@ -92,12 +138,14 @@ void Default_Dispatcher_Logger::request_read_and_idx
   logger->annotated_log(out.str());
 }
 
+
 void Default_Dispatcher_Logger::read_idx_finished(pid_t pid)
 {
   std::ostringstream out;
   out<<"read_idx_finished "<<pid<<'.';
   logger->annotated_log(out.str());
 }
+
 
 void Default_Dispatcher_Logger::prolongate(pid_t pid)
 {
@@ -106,12 +154,14 @@ void Default_Dispatcher_Logger::prolongate(pid_t pid)
   logger->annotated_log(out.str());
 }
 
+
 void Default_Dispatcher_Logger::idle_counter(uint32 idle_count)
 {
   std::ostringstream out;
   out<<"waited idle for "<<idle_count<<" cycles.";
   logger->annotated_log(out.str());
 }
+
 
 void Default_Dispatcher_Logger::query_my_status(pid_t pid)
 {
@@ -120,12 +170,14 @@ void Default_Dispatcher_Logger::query_my_status(pid_t pid)
   logger->annotated_log(out.str());
 }
 
+
 void Default_Dispatcher_Logger::read_finished(pid_t pid)
 {
   std::ostringstream out;
   out<<"read_finished of process "<<pid<<'.';
   logger->annotated_log(out.str());
 }
+
 
 void Default_Dispatcher_Logger::read_aborted(pid_t pid)
 {
@@ -134,12 +186,14 @@ void Default_Dispatcher_Logger::read_aborted(pid_t pid)
   logger->annotated_log(out.str());
 }
 
+
 void Default_Dispatcher_Logger::hangup(pid_t pid)
 {
   std::ostringstream out;
   out<<"hangup of process "<<pid<<'.';
   logger->annotated_log(out.str());
 }
+
 
 void Default_Dispatcher_Logger::purge(pid_t pid)
 {
@@ -178,13 +232,15 @@ int main(int argc, char* argv[])
 {
   // read command line arguments
   std::string db_dir;
+  std::string socket_dir;
   bool osm_base(false), areas(false), meta(false), attic(false),
       terminate(false), status(false), show_dir(false);
   uint32 purge_id = 0;
   bool query_token = false;
   uint64 max_allowed_space = 0;
   uint64 max_allowed_time_units = 0;
-  int rate_limit = -1;
+  int32_t rate_limit = -1;
+  int32_t bit_limits = 0;
   std::string server_name;
 
   int argpos(1);
@@ -193,8 +249,14 @@ int main(int argc, char* argv[])
     if (!(strncmp(argv[argpos], "--db-dir=", 9)))
     {
       db_dir = ((std::string)argv[argpos]).substr(9);
-      if ((db_dir.size() > 0) && (db_dir[db_dir.size()-1] != '/'))
+      if (!db_dir.empty() && (db_dir[db_dir.size()-1] != '/'))
 	db_dir += '/';
+    }
+    else if (!(strncmp(argv[argpos], "--socket-dir=", 13)))
+    {
+      socket_dir = ((std::string)argv[argpos]).substr(13);
+      if (!socket_dir.empty() && (socket_dir[socket_dir.size()-1] != '/'))
+	socket_dir += '/';
     }
     else if (std::string("--osm-base") == argv[argpos])
       osm_base = true;
@@ -220,6 +282,9 @@ int main(int argc, char* argv[])
       max_allowed_time_units = atoll(((std::string)argv[argpos]).substr(7).c_str());
     else if (!(strncmp(argv[argpos], "--rate-limit=", 13)))
       rate_limit = atoll(((std::string)argv[argpos]).substr(13).c_str());
+    else if (!(strncmp(argv[argpos], "--allow-duplicate-queries=", 26)))
+      bit_limits = ((bit_limits & 0xfffffffc) | 0x2 |
+          (((std::string)argv[argpos]).substr(26) == "yes" ? 0x1 : 0));
     else if (!(strncmp(argv[argpos], "--server-name=", 14)))
       server_name = ((std::string)argv[argpos]).substr(14);
     else
@@ -240,6 +305,7 @@ int main(int argc, char* argv[])
       "  --space=number: Set the memory limit for the total of all running processes to this value in bytes.\n"
       "  --time=number: Set the time unit  limit for the total of all running processes to this value in bytes.\n"
       "  --rate-limit=number: Set the maximum allowed number of concurrent accesses from a single IP.\n"
+      "  --allow-duplicate-queries=(yes|no): Set whether the dispatcher shall block duplicate queries.\n"
       "  --server-name: Set the server name used in status and error messages.\n";
 
       return 0;
@@ -344,13 +410,13 @@ int main(int argc, char* argv[])
     }
     return 0;
   }
-  else if (db_dir == "" && (max_allowed_space > 0 || max_allowed_time_units > 0 || rate_limit > -1))
+  else if (db_dir == "" && (max_allowed_space > 0 || max_allowed_time_units > 0 || rate_limit > -1 || bit_limits))
   {
     try
     {
       Dispatcher_Client client
           (areas ? area_settings().shared_name : osm_base_settings().shared_name);
-      client.set_global_limits(max_allowed_space, max_allowed_time_units, rate_limit);
+      client.set_global_limits(max_allowed_space, max_allowed_time_units, rate_limit, bit_limits);
     }
     catch (File_Error e)
     {
@@ -431,7 +497,13 @@ int main(int argc, char* argv[])
     log.annotated_log("Dispatcher version " + basic_settings().version + " "
         + basic_settings().source_hash + " just started.");
   }
-  int chmod_res = chmod((db_dir + basic_settings().logfile_name).c_str(), S_666);
+  {
+    Logger log(db_dir, basic_settings().client_logfile_name);
+    log.annotated_log("Dispatcher version " + basic_settings().version + " "
+        + basic_settings().source_hash + " just started.");
+  }
+  int chmod_res = chmod((db_dir + basic_settings().db_logfile_name).c_str(), S_666);
+  chmod_res |= chmod((db_dir + basic_settings().client_logfile_name).c_str(), S_666);
   if (chmod_res)
   {
     Logger log(db_dir);
@@ -440,6 +512,14 @@ int main(int argc, char* argv[])
 
   try
   {
+    rlimit max_open_files;
+    int result = getrlimit(RLIMIT_NOFILE, &max_open_files);
+    if (result == -1)
+    {
+      std::cerr<<"getrlimit(RLIMIT_NOFILE, ..) failed: "<<errno<<' '<<strerror(errno)<<'\n';
+      return errno;
+    }
+    
     Logger logger(db_dir);
     Default_Dispatcher_Logger disp_logger(logger);
     if (max_allowed_space <= 0)
@@ -447,14 +527,14 @@ int main(int argc, char* argv[])
     if (max_allowed_time_units <= 0)
       max_allowed_time_units = areas ? area_settings().total_available_time_units
           : osm_base_settings().total_available_time_units;
-    Dispatcher dispatcher
-        (areas ? area_settings().shared_name : osm_base_settings().shared_name,
-         "", db_dir + (areas ? "areas_shadow" : "osm_base_shadow"), db_dir,
-	 areas ? area_settings().max_num_processes : osm_base_settings().max_num_processes,
-	 areas ? area_settings().purge_timeout : osm_base_settings().purge_timeout,
-	 max_allowed_space,
-	 max_allowed_time_units,
-	 files_to_manage, &disp_logger);
+    Dispatcher dispatcher(
+        areas ? area_settings().shared_name : osm_base_settings().shared_name,
+        "", db_dir + (areas ? "areas_shadow" : "osm_base_shadow"), db_dir, socket_dir,
+        areas ? area_settings().max_num_processes : osm_base_settings().max_num_processes,
+        max_open_files.rlim_cur > 256 ? max_open_files.rlim_cur - 64 : max_open_files.rlim_cur*3/4,
+        areas ? area_settings().purge_timeout : osm_base_settings().purge_timeout,
+        max_allowed_space, max_allowed_time_units,
+        files_to_manage, &disp_logger);
 
     if (rate_limit > -1)
       dispatcher.set_rate_limit(rate_limit);

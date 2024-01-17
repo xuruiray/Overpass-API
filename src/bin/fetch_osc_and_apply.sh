@@ -82,13 +82,25 @@ collect_minute_diffs()
 
 apply_minute_diffs()
 {
-  ./update_from_dir --osc-dir=$1 --version=$DATA_VERSION --flush-size=0
+  ./update_from_dir --osc-dir=$1 --version=$DATA_VERSION --flush-size=0 &
+  CHILD_PID=$!
+  wait "$CHILD_PID"
   EXITCODE=$?
+  if [[ $EXITCODE -eq 15 ]]; then  # SIGTERM
+    echo "$(date -u '+%F %T'): update_from_dir terminated" >>$DB_DIR/apply_osc_to_db.log
+    exit $EXITCODE
+  fi
   while [[ $EXITCODE -ne 0 ]]; do
   {
     sleep 60
-    ./update_from_dir --osc-dir=$1 --version=$DATA_VERSION --flush-size=0
+    ./update_from_dir --osc-dir=$1 --version=$DATA_VERSION --flush-size=0 &
+    CHILD_PID=$!
+    wait "$CHILD_PID"
     EXITCODE=$?
+    if [[ $EXITCODE -eq 15 ]]; then  # SIGTERM
+      echo "$(date -u '+%F %T'): update_from_dir terminated" >>$DB_DIR/apply_osc_to_db.log
+      exit $EXITCODE
+    fi
   }; done
   DIFF_COUNT=$(($DIFF_COUNT + 1))
 };
@@ -99,6 +111,17 @@ update_state()
   get_replicate_filename $TARGET
   TIMESTAMP_LINE=$(grep "^timestamp" <$TEMP_SOURCE_DIR/$TARGET_FILE.state.txt)
   DATA_VERSION=${TIMESTAMP_LINE:10}
+};
+
+
+shutdown()
+{
+  if [[ $CHILD_PID -ge 1 ]]; then
+    kill $CHILD_PID
+  fi
+  rm -fR $TEMP_SOURCE_DIR
+  rm -fR $TEMP_TARGET_DIR
+  exit 15
 };
 
 
@@ -116,6 +139,12 @@ if [[ $START == "auto" ]]; then
   START=$(($(cat $DB_DIR/replicate_id) + 0))
 }; fi
 
+trap shutdown SIGTERM
+
+./migrate_database --migrate &
+CHILD_PID=$!
+wait "$CHILD_PID"
+
 while [[ true ]]; do
 {
   echo "$(date -u '+%F %T'): updating from $START" >>$DB_DIR/fetch_osc_and_apply.log
@@ -130,7 +159,7 @@ while [[ true ]]; do
   collect_minute_diffs $MAX_AVAILABLE_REPLICATE_ID $TEMP_SOURCE_DIR $TEMP_TARGET_DIR
 
   if [[ $TARGET -gt $START ]]; then
-  {
+  {  
     echo "$(date -u '+%F %T'): updating to $TARGET" >>$DB_DIR/fetch_osc_and_apply.log
 
     update_state

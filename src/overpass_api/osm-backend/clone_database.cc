@@ -21,9 +21,10 @@
 #include "../core/settings.h"
 #include "../data/filenames.h"
 #include "../../template_db/block_backend.h"
+#include "../../template_db/block_backend_write.h"
 #include "../../template_db/file_blocks.h"
 #include "../../template_db/random_file.h"
-
+#include "tags_global_writer.h"
 
 template< typename TIndex, typename TObject >
 void clone_bin_file(const File_Properties& src_file_prop, const File_Properties& dest_file_prop,
@@ -32,14 +33,14 @@ void clone_bin_file(const File_Properties& src_file_prop, const File_Properties&
 {
   try
   {
-    File_Blocks_Index< TIndex >& src_idx =
-        *dynamic_cast< File_Blocks_Index< TIndex >* >(transaction.data_index(&src_file_prop));
+    Readonly_File_Blocks_Index< TIndex >& src_idx =
+        *dynamic_cast< Readonly_File_Blocks_Index< TIndex >* >(transaction.data_index(&src_file_prop));
     File_Blocks< TIndex, typename std::set< TIndex >::const_iterator > src_file(&src_idx);
     uint32 block_size = src_idx.get_block_size() * src_idx.get_compression_factor();
 
     if (block_size == dest_file_prop.get_block_size() * dest_file_prop.get_compression_factor())
     {
-      File_Blocks_Index< TIndex > dest_idx(dest_file_prop, true, false, dest_db_dir, "",
+      Writeable_File_Blocks_Index< TIndex > dest_idx(dest_file_prop, false, dest_db_dir, "",
           clone_settings.compression_method);
       File_Blocks< TIndex, typename std::set< TIndex >::const_iterator >
           dest_file(&dest_idx);
@@ -54,14 +55,13 @@ void clone_bin_file(const File_Properties& src_file_prop, const File_Properties&
         {
           uint64* buf = src_file.read_block(src_it, false);
           dest_file.insert_block(
-              dest_file.write_end(), buf, std::min(excess_bytes, block_size),
-              src_it.block_it->max_keysize, src_it.block_it->index);
+              dest_file.write_end(), buf, std::min(excess_bytes, block_size), src_it.block().index());
           excess_bytes = std::max(excess_bytes, block_size) - block_size;
         }
         else
         {
           uint64* buf = src_file.read_block(src_it);
-          dest_file.insert_block(dest_file.write_end(), buf, src_it.block_it->max_keysize);
+          dest_file.insert_block(dest_file.write_end(), buf);
           if (((uint32*)buf)[1] > block_size)
             excess_bytes = ((uint32*)buf)[1] - block_size;
         }
@@ -77,7 +77,7 @@ void clone_bin_file(const File_Properties& src_file_prop, const File_Properties&
       typename Block_Backend< TIndex, TObject >::Flat_Iterator it = from_db.flat_begin();
       typename std::map< TIndex, std::set< TObject > >::iterator dit = db_to_insert.begin();
 
-      File_Blocks_Index< TIndex > dest_idx(dest_file_prop, true, false, dest_db_dir, "",
+      Writeable_File_Blocks_Index< TIndex > dest_idx(dest_file_prop, false, dest_db_dir, "",
           clone_settings.compression_method);
       Block_Backend< TIndex, TObject > into_db(&dest_idx);
 
@@ -210,22 +210,28 @@ void clone_global_tags_file(Transaction& transaction, std::string dest_db_dir, c
   clone_matching_bin_file< Tag_Index_Global, Tag_Object_Global< typename Skeleton::Id_Type > >(
       *current_global_tags_file_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
 }
+template< typename Skeleton >
+void clone_frequent_tags_file(Transaction& transaction, std::string dest_db_dir, const Clone_Settings& clone_settings)
+{
+  clone_matching_bin_file< String_Index, Frequent_Value_Entry >(
+      *current_global_tag_frequency_file_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
+}
 template< typename Index, typename Skeleton >
 void clone_keys_file(Transaction& transaction, std::string dest_db_dir, const Clone_Settings& clone_settings)
 {
   clone_matching_bin_file< Index, String_Object >(
       *key_file_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
 }
-template< typename Skeleton >
+template< typename Index, typename Skeleton >
 void clone_attic_idx_list_file(Transaction& transaction, std::string dest_db_dir, const Clone_Settings& clone_settings)
 {
-  clone_matching_bin_file< typename Skeleton::Id_Type, Uint31_Index >(
+  clone_matching_bin_file< typename Skeleton::Id_Type, Index >(
       *attic_idx_list_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
 }
-template< typename Skeleton >
+template< typename Index, typename Skeleton >
 void clone_attic_undeleted_file(Transaction& transaction, std::string dest_db_dir, const Clone_Settings& clone_settings)
 {
-  clone_matching_bin_file< Uint31_Index, Attic< typename Skeleton::Id_Type > >(
+  clone_matching_bin_file< Index, Attic< typename Skeleton::Id_Type > >(
       *attic_undeleted_file_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
 }
 template< typename Index, typename Skeleton >
@@ -247,6 +253,12 @@ void clone_attic_global_tags_file(Transaction& transaction, std::string dest_db_
       *attic_global_tags_file_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
 }
 template< typename Skeleton >
+void clone_attic_frequent_tags_file(Transaction& transaction, std::string dest_db_dir, const Clone_Settings& clone_settings)
+{
+  clone_matching_bin_file< String_Index, Frequent_Value_Entry >(
+      *attic_global_tag_frequency_file_properties< Skeleton >(), transaction, dest_db_dir, clone_settings);
+}
+template< typename Skeleton >
 void clone_changelog_file(Transaction& transaction, std::string dest_db_dir, const Clone_Settings& clone_settings)
 {
   clone_matching_bin_file< Timestamp, Change_Entry< typename Skeleton::Id_Type > >(
@@ -256,58 +268,64 @@ void clone_changelog_file(Transaction& transaction, std::string dest_db_dir, con
 
 void clone_database(Transaction& transaction, const std::string& dest_db_dir, const Clone_Settings& clone_settings)
 {
-  clone_skeleton_file< Uint32_Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_skeleton_file< Node::Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_current_map_file< Uint32_Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_local_tags_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_global_tags_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_frequent_tags_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_keys_file< Uint32_Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
 
-  clone_skeleton_file< Uint31_Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_skeleton_file< Way::Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_current_map_file< Uint31_Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_local_tags_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_global_tags_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_frequent_tags_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_keys_file< Uint32_Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
 
-  clone_skeleton_file< Uint31_Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_skeleton_file< Relation::Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_current_map_file< Uint31_Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_local_tags_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_global_tags_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_frequent_tags_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_keys_file< Uint32_Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_matching_bin_file< Uint32_Index, String_Object >(
       *osm_base_settings().RELATION_ROLES, transaction, dest_db_dir, clone_settings);
 
-  clone_meta_file< Uint31_Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_meta_file< Uint31_Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_meta_file< Uint31_Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_meta_file< Node::Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_meta_file< Way::Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_meta_file< Relation::Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_matching_bin_file< Uint32_Index, User_Data >(
       *meta_settings().USER_DATA, transaction, dest_db_dir, clone_settings);
   clone_matching_bin_file< Uint32_Index, Uint31_Index >(
       *meta_settings().USER_INDICES, transaction, dest_db_dir, clone_settings);
 
-  clone_attic_skel_file< Uint31_Index, Node_Skeleton, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_skel_file< Node::Index, Node_Skeleton, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_map_file< Uint31_Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_undeleted_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_idx_list_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_undeleted_file< Node::Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_idx_list_file< Node::Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_local_tags_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_global_tags_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_meta_file< Uint31_Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_frequent_tags_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_meta_file< Node::Index, Node_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_changelog_file< Node_Skeleton >(transaction, dest_db_dir, clone_settings);
 
-  clone_attic_skel_file< Uint31_Index, Way_Skeleton, Way_Delta >(transaction, dest_db_dir, clone_settings);
+  clone_attic_skel_file< Way::Index, Way_Skeleton, Way_Delta >(transaction, dest_db_dir, clone_settings);
   clone_attic_map_file< Uint31_Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_undeleted_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_idx_list_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_undeleted_file< Way::Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_idx_list_file< Way::Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_local_tags_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_global_tags_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_meta_file< Uint31_Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_frequent_tags_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_meta_file< Way::Index, Way_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_changelog_file< Way_Skeleton >(transaction, dest_db_dir, clone_settings);
 
-  clone_attic_skel_file< Uint31_Index, Relation_Skeleton, Relation_Delta >(transaction, dest_db_dir, clone_settings);
+  clone_attic_skel_file< Relation::Index, Relation_Skeleton, Relation_Delta >(transaction, dest_db_dir, clone_settings);
   clone_attic_map_file< Uint31_Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_undeleted_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_idx_list_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_undeleted_file< Relation::Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_idx_list_file< Relation::Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_local_tags_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_attic_global_tags_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
-  clone_attic_meta_file< Uint31_Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_frequent_tags_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
+  clone_attic_meta_file< Relation::Index, Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
   clone_changelog_file< Relation_Skeleton >(transaction, dest_db_dir, clone_settings);
 }

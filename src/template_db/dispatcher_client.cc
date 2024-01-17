@@ -72,9 +72,13 @@ Dispatcher_Client::Dispatcher_Client(const std::string& dispatcher_share_name_)
     shadow_name = db_dir + (dispatcher_share_name.size() >= 8
         && dispatcher_share_name.substr(dispatcher_share_name.size()-8) == "osm_base"
         ? "/osm_base_shadow" : "/areas_shadow");
+    
+  if (!db_dir.empty() && db_dir.back() != '/')
+    db_dir += '/';
 
   // initialize the socket for the client
-  socket.open(db_dir + dispatcher_share_name_);
+  char* socket_dir_env = getenv("OVERPASS_SOCKET_DIR");
+  socket.open((socket_dir_env ? std::string(socket_dir_env) : db_dir) + dispatcher_share_name_);
   std::string socket_name = db_dir + dispatcher_share_name_;
 
   pid_t pid = getpid();
@@ -144,6 +148,35 @@ void Dispatcher_Client::write_start()
 }
 
 
+void Dispatcher_Client::migrate_start()
+{
+  pid_t pid = getpid();
+
+  send_message(Dispatcher::MIGRATE_START, "Dispatcher_Client::migrate_start::socket");
+
+  while (true)
+  {
+    if (ack_arrived())
+    {
+      if (file_exists(shadow_name + ".lock"))
+      {
+        try
+        {
+          pid_t locked_pid = 0;
+          std::ifstream lock((shadow_name + ".lock").c_str());
+          lock>>locked_pid;
+          if (locked_pid == pid)
+            return;
+        }
+        catch (...) {}
+      }
+      send_message(Dispatcher::MIGRATE_START, "Dispatcher_Client::migrate_start::socket");
+    }
+    millisleep(500);
+  }
+}
+
+
 void Dispatcher_Client::write_rollback()
 {
   pid_t pid = getpid();
@@ -158,17 +191,49 @@ void Dispatcher_Client::write_rollback()
       {
         try
         {
-	  pid_t locked_pid;
-	  std::ifstream lock((shadow_name + ".lock").c_str());
-	  lock>>locked_pid;
-	  if (locked_pid != pid)
-	    return;
+          pid_t locked_pid = 0;
+          std::ifstream lock((shadow_name + ".lock").c_str());
+          lock>>locked_pid;
+          if (locked_pid != pid)
+            return;
         }
         catch (...) {}
       }
       else
         return;
       send_message(Dispatcher::WRITE_ROLLBACK, "Dispatcher_Client::write_rollback::socket");
+    }
+
+    millisleep(500);
+  }
+}
+
+
+void Dispatcher_Client::migrate_rollback()
+{
+  pid_t pid = getpid();
+
+  send_message(Dispatcher::MIGRATE_ROLLBACK, "Dispatcher_Client::migrate_rollback::socket");
+
+  while (true)
+  {
+    if (ack_arrived())
+    {
+      if (file_exists(shadow_name + ".lock"))
+      {
+        try
+        {
+          pid_t locked_pid = 0;
+          std::ifstream lock((shadow_name + ".lock").c_str());
+          lock>>locked_pid;
+          if (locked_pid != pid)
+            return;
+        }
+        catch (...) {}
+      }
+      else
+        return;
+      send_message(Dispatcher::MIGRATE_ROLLBACK, "Dispatcher_Client::migrate_rollback::socket");
     }
 
     millisleep(500);
@@ -191,11 +256,11 @@ void Dispatcher_Client::write_commit()
       {
         try
         {
-	  pid_t locked_pid;
-	  std::ifstream lock((shadow_name + ".lock").c_str());
-	  lock>>locked_pid;
-	  if (locked_pid != pid)
-	    return;
+          pid_t locked_pid = 0;
+          std::ifstream lock((shadow_name + ".lock").c_str());
+          lock>>locked_pid;
+          if (locked_pid != pid)
+            return;
         }
         catch (...) {}
       }
@@ -209,8 +274,41 @@ void Dispatcher_Client::write_commit()
 }
 
 
-void Dispatcher_Client::request_read_and_idx(uint32 max_allowed_time, uint64 max_allowed_space,
-					     uint32 client_token)
+void Dispatcher_Client::migrate_commit()
+{
+  pid_t pid = getpid();
+
+  send_message(Dispatcher::MIGRATE_COMMIT, "Dispatcher_Client::migrate_commit::socket");
+  millisleep(200);
+
+  while (true)
+  {
+    if (ack_arrived())
+    {
+      if (file_exists(shadow_name + ".lock"))
+      {
+        try
+        {
+          pid_t locked_pid = 0;
+          std::ifstream lock((shadow_name + ".lock").c_str());
+          lock>>locked_pid;
+          if (locked_pid != pid)
+            return;
+        }
+        catch (...) {}
+      }
+      else
+        return;
+    }
+
+    send_message(Dispatcher::MIGRATE_COMMIT, "Dispatcher_Client::migrate_commit::socket");
+    millisleep(200);
+  }
+}
+
+
+void Dispatcher_Client::request_read_and_idx(
+    uint32 max_allowed_time, uint64 max_allowed_space, uint32 client_token, uint64 request_full_hash)
 {
   uint counter = 0;
   uint32 ack = 0;
@@ -221,6 +319,7 @@ void Dispatcher_Client::request_read_and_idx(uint32 max_allowed_time, uint64 max
     send_message(max_allowed_time, "Dispatcher_Client::request_read_and_idx::socket::2");
     send_message(max_allowed_space, "Dispatcher_Client::request_read_and_idx::socket::3");
     send_message(client_token, "Dispatcher_Client::request_read_and_idx::socket::4");
+    send_message(request_full_hash, "Dispatcher_Client::request_read_and_idx::socket::5");
 
     ack = ack_arrived();
     if (ack == Dispatcher::REQUEST_READ_AND_IDX)
@@ -230,8 +329,12 @@ void Dispatcher_Client::request_read_and_idx(uint32 max_allowed_time, uint64 max
   }
   if (ack == Dispatcher::RATE_LIMITED)
     throw File_Error(0, dispatcher_share_name, "Dispatcher_Client::request_read_and_idx::rate_limited");
-  else
+  else if (ack == Dispatcher::QUERY_REJECTED)
     throw File_Error(0, dispatcher_share_name, "Dispatcher_Client::request_read_and_idx::timeout");
+  else if (ack == Dispatcher::DUPLICATE_QUERY)
+    throw File_Error(0, dispatcher_share_name, "Dispatcher_Client::request_read_and_idx::duplicate_query");
+  else
+    throw File_Error(0, dispatcher_share_name, "Dispatcher_Client::request_read_and_idx::protocol_error");
 }
 
 
@@ -320,8 +423,8 @@ Client_Status Dispatcher_Client::query_my_status(uint32 token)
 }
 
 
-void Dispatcher_Client::set_global_limits(uint64 max_allowed_space, uint64 max_allowed_time_units,
-                                          int rate_limit)
+void Dispatcher_Client::set_global_limits(
+    uint64 max_allowed_space, uint64 max_allowed_time_units, int32_t rate_limit, int32_t bit_limits)
 {
   while (true)
   {
@@ -329,6 +432,7 @@ void Dispatcher_Client::set_global_limits(uint64 max_allowed_space, uint64 max_a
     send_message(max_allowed_space, "Dispatcher_Client::set_global_limits::2");
     send_message(max_allowed_time_units, "Dispatcher_Client::set_global_limits::3");
     send_message(rate_limit, "Dispatcher_Client::set_global_limits::4");
+    send_message(bit_limits, "Dispatcher_Client::set_global_limits::5");
 
     if (ack_arrived())
       return;

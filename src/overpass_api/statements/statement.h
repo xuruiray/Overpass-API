@@ -34,6 +34,20 @@
 
 typedef enum { ids_required, ids_useful, prefer_ranges } Query_Filter_Strategy;
 
+typedef enum { nothing, /*ids_collected,*/ ranges_collected, data_collected } Answer_State;
+
+
+template< typename Id >
+struct Id_Constraint
+{
+  Id_Constraint() : invert(true) {}
+  bool empty() const { return !invert && ids.empty(); }
+  void restrict_to(const std::vector< Id >& ids);
+  
+  std::vector< Id > ids;
+  bool invert;
+};
+
 
 class Query_Constraint
 {
@@ -50,18 +64,32 @@ class Query_Constraint
                          int type, const std::vector< Uint64_Index >& ids, bool invert_ids) { return false; }
     virtual bool collect(Resource_Manager& rman, Set& into) { return false; }
 
-    virtual bool get_ranges
-        (Resource_Manager& rman, Ranges< Uint31_Index >& ranges)
-      { return false; }
-    virtual bool get_way_ranges
-        (Resource_Manager& rman, Ranges< Uint31_Index >& ranges)
-      { return get_ranges(rman, ranges); }
-    virtual bool get_relation_ranges
-        (Resource_Manager& rman, Ranges< Uint31_Index >& ranges)
-      { return get_ranges(rman, ranges); }
-    virtual bool get_ranges
-        (Resource_Manager& rman, Ranges< Uint32_Index >& ranges)
-      { return false; }
+    virtual bool get_ranges(Resource_Manager& rman, Ranges< Uint31_Index >& ranges)
+    { return false; }
+    virtual bool get_ranges(Resource_Manager& rman, Ranges< Uint32_Index >& ranges)
+    { return false; }
+
+    virtual Ranges< Uint32_Index > get_node_ranges(Resource_Manager& rman)
+    { 
+      Ranges< Uint32_Index > result;
+      if (get_ranges(rman, result))
+        return result;
+      return Ranges< Uint32_Index >::global();
+    }
+    virtual Ranges< Uint31_Index > get_way_ranges(Resource_Manager& rman)
+    { 
+      Ranges< Uint31_Index > result;
+      if (get_ranges(rman, result))
+        return result;
+      return Ranges< Uint31_Index >::global();
+    }
+    virtual Ranges< Uint31_Index > get_relation_ranges(Resource_Manager& rman)
+    { 
+      Ranges< Uint31_Index > result;
+      if (get_ranges(rman, result))
+        return result;
+      return Ranges< Uint31_Index >::global();
+    }
 
     virtual bool get_node_ids
         (Resource_Manager& rman, std::vector< Node_Skeleton::Id_Type >& ids)

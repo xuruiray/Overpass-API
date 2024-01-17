@@ -23,6 +23,7 @@
 #include <cstdio>
 
 #include "block_backend.h"
+#include "block_backend_write.h"
 #include "transaction.h"
 
 
@@ -40,15 +41,14 @@ struct IntIndex
   IntIndex(void* data) : value(*(uint32*)data) {}
   IntIndex(int i) : value(i) {}
 
-  uint32 size_of() const
-  {
-    return 4;
-  }
+  static bool equal(void* lhs, void* rhs) { return *(uint32*)lhs == *(uint32*)rhs; }
+  bool less(void* rhs) const { return value < *(uint32*)rhs; }
+  bool leq(void* rhs) const { return value <= *(uint32*)rhs; }
+  bool equal(void* rhs) const { return value == *(uint32*)rhs; }
 
-  static uint32 size_of(void* data)
-  {
-    return 4;
-  }
+  uint32 size_of() const { return 4; }
+  static constexpr uint32 const_size() { return 4; }
+  static uint32 size_of(void* data) { return 4; }
 
   void to_data(void* data) const
   {
@@ -222,7 +222,7 @@ struct Test_File : File_Properties
 
   uint32 get_map_compression_method() const
   {
-    return File_Blocks_Index< IntIndex >::NO_COMPRESSION;
+    return File_Blocks_Index_Base::NO_COMPRESSION;
   }
 
   uint32 get_map_block_size() const
@@ -255,8 +255,11 @@ struct Test_File : File_Properties
       (bool writeable, bool use_shadow, const std::string& db_dir, const std::string& file_name_extension)
       const
   {
-    return new File_Blocks_Index< IntIndex >
-        (*this, writeable, use_shadow, db_dir, file_name_extension);
+    if (writeable)
+      return new Writeable_File_Blocks_Index< IntIndex >
+          (*this, use_shadow, db_dir, file_name_extension);
+    return new Readonly_File_Blocks_Index< IntIndex >
+        (*this, use_shadow, db_dir, file_name_extension);
   }
 };
 
@@ -374,9 +377,9 @@ void read_test(unsigned int step)
     read_loop(db_backend, fit);
     std::cout<<"... all blocks read.\n";
 
-    std::set< IntIndex > index_list;
+    std::vector< IntIndex > index_list;
     for (unsigned int i(0); i < 100; i += 9)
-      index_list.insert(&i);
+      index_list.push_back(&i);
     std::cout<<"Reading blocks with indices {0, 9, ..., 99} ...\n";
     Block_Backend< IntIndex, IntObject >::Discrete_Iterator
 	it(db_backend.discrete_begin(index_list.begin(), index_list.end()));
@@ -385,7 +388,7 @@ void read_test(unsigned int step)
 
     index_list.clear();
     for (unsigned int i(0); i < 10; ++i)
-      index_list.insert(&i);
+      index_list.push_back(&i);
     std::cout<<"Reading blocks with indices {0, 1, ..., 9} ...\n";
     it = db_backend.discrete_begin(index_list.begin(), index_list.end());
     read_loop(db_backend, it);
@@ -401,7 +404,7 @@ void read_test(unsigned int step)
 
     index_list.clear();
     for (unsigned int i(90); i < 100; ++i)
-      index_list.insert(&i);
+      index_list.push_back(&i);
     std::cout<<"Reading blocks with indices {90, 91, ..., 99} ...\n";
     it = db_backend.discrete_begin(index_list.begin(), index_list.end());
     read_loop(db_backend, it);
@@ -417,7 +420,7 @@ void read_test(unsigned int step)
 
     index_list.clear();
     uint32 foo(50);
-    index_list.insert(&foo);
+    index_list.push_back(&foo);
     std::cout<<"Reading blocks with index 50 ...\n";
     it = db_backend.discrete_begin(index_list.begin(), index_list.end());
     read_loop(db_backend, it);

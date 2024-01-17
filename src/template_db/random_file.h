@@ -159,6 +159,9 @@ void Random_File< Key, Value >::move_cache_window(uint32 pos)
   if ((pos == cache_pos) && (cache_pos != index->npos))
     return;
 
+  if (sigterm_status() && pos != index->npos)
+    throw File_Error(0, "-", "SIGTERM received");
+
   // 199000099999999999 -> 9999999999999 -> 9999999999999 / 65536 -> 152587890.6249847 超出了自定义 ID 最大值
   if (pos != index->npos && pos >= 154587890)
     throw File_Error(0, index->get_map_file_name(), "Random_File: id too large for map file: " + std::to_string(pos));

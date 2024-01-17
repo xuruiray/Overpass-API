@@ -339,6 +339,9 @@ namespace
 
 void node_start(const char *el, const char **attr)
 {
+  if (sigterm_status())
+    XML_StopParser(get_current_parser(), XML_FALSE);
+
   if (!strcmp(el, "tag"))
     tag_start(attr);
   else if (!strcmp(el, "node"))
@@ -358,6 +361,9 @@ void node_end(const char *el)
 
 void way_start(const char *el, const char **attr)
 {
+  if (sigterm_status())
+    XML_StopParser(get_current_parser(), XML_FALSE);
+
   if (!strcmp(el, "tag"))
     tag_start(attr);
   else if (!strcmp(el, "nd"))
@@ -379,6 +385,9 @@ void way_end(const char *el)
 
 void relation_start(const char *el, const char **attr)
 {
+  if (sigterm_status())
+    XML_StopParser(get_current_parser(), XML_FALSE);
+
   if (!strcmp(el, "tag"))
     tag_start(attr);
   else if (!strcmp(el, "member"))
@@ -400,6 +409,9 @@ void relation_end(const char *el)
 
 void start(const char *el, const char **attr)
 {
+  if (sigterm_status())
+    XML_StopParser(get_current_parser(), XML_FALSE);
+
   if (!strcmp(el, "tag"))
     tag_start(attr);
   else if (!strcmp(el, "nd"))
@@ -520,6 +532,7 @@ Osm_Updater::Osm_Updater(Osm_Backend_Callback* callback_, const std::string& dat
   way_updater = way_updater_;
   relation_updater = relation_updater_;
   callback = callback_;
+  callback->set_db_dir(dispatcher_client->get_db_dir());
   cpu_stopwatch = new Cpu_Stopwatch();
   cpu_stopwatch->start_cpu_timer(0);
   if (meta)
@@ -557,6 +570,8 @@ Osm_Updater::Osm_Updater
   callback = callback_;
   if (meta)
     ::meta = new OSM_Element_Metadata();
+
+  signal(SIGTERM, sigterm);
 }
 
 void Osm_Updater::flush()

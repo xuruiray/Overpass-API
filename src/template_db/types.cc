@@ -27,6 +27,11 @@ void copy_file(const std::string& source, const std::string& dest)
 {
   if (!file_exists(source))
     return;
+  if (file_exists(dest))
+  {
+    if (remove(dest.c_str()))
+      throw File_Error(errno, dest, "copy_file:1");
+  }
 
   Raw_File source_file(source, O_RDONLY, S_666, "Dispatcher:1");
   uint64 size = source_file.size("Dispatcher:2");
@@ -42,10 +47,38 @@ void copy_file(const std::string& source, const std::string& dest)
 }
 
 
+void force_link_file(const std::string& source, const std::string& dest)
+{
+  if (!file_exists(source))
+    return;
+  if (file_exists(dest))
+  {
+    if (remove(dest.c_str()))
+      throw File_Error(errno, dest, "force_link_file:1");
+  }
+
+  if (link(source.c_str(), dest.c_str()))
+    throw File_Error(errno, source, "force_link_file:2");
+}
+
+
 int& global_read_counter()
 {
   static int counter = 0;
   return counter;
+}
+
+
+Signal_Status& sigterm_status()
+{
+  static Signal_Status status = Signal_Status::absent;
+  return status;
+}
+
+
+void sigterm(int)
+{
+  sigterm_status() = Signal_Status::received;
 }
 
 

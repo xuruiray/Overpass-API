@@ -76,10 +76,18 @@ struct File_Blocks_Index_Base
   virtual bool empty() const = 0;
   virtual ~File_Blocks_Index_Base() {}
 
+  virtual std::string get_data_file_name() const = 0;
+  virtual uint64 get_block_size() const = 0;
+  virtual uint32 get_compression_factor() const = 0;
+  virtual uint32 get_compression_method() const = 0;
+  virtual uint32 get_block_count() const = 0;
+  virtual int32 get_file_format_version() const = 0;
+
   static const int USE_DEFAULT = -1;
   static const int NO_COMPRESSION = 0;
   static const int ZLIB_COMPRESSION = 1;
   static const int LZ4_COMPRESSION = 2;
+  static const unsigned int IDX_HEADER_LENGTH = 8;
 };
 
 
@@ -141,6 +149,21 @@ public:
   explicit Void_Pointer(int block_size) { ptr = block_size > 0 ? (T*)malloc(block_size) : 0; }
   ~Void_Pointer() { clear(); }
 
+  Void_Pointer(Void_Pointer&& rhs) : ptr(rhs.ptr)
+  {
+    rhs.ptr = nullptr;
+  }
+  Void_Pointer& operator=(Void_Pointer&& rhs)
+  {
+    if (ptr != rhs.ptr)
+    {
+      clear();
+      ptr = rhs.ptr;
+      rhs.ptr = nullptr;
+    }
+    return *this;
+  }
+
   void clear()
   {
     if (ptr)
@@ -173,6 +196,21 @@ public:
     ptr = block_size > 0 ? (T*)aligned_alloc(8, block_size) : 0;
   }
   ~Void64_Pointer() { clear(); }
+
+  Void64_Pointer(Void64_Pointer&& rhs) : ptr(rhs.ptr)
+  {
+    rhs.ptr = nullptr;
+  }
+  Void64_Pointer& operator=(Void64_Pointer&& rhs)
+  {
+    if (ptr != rhs.ptr)
+    {
+      clear();
+      ptr = rhs.ptr;
+      rhs.ptr = nullptr;
+    }
+    return *this;
+  }
 
   void clear()
   {
@@ -321,11 +359,16 @@ inline void zero_padding(uint8* from, uint32 bytes)
 
 int& global_read_counter();
 
+enum Signal_Status { absent = 0, received, processed };
+Signal_Status& sigterm_status();
+void sigterm(int);
+
 
 void millisleep(uint32 milliseconds);
 
 
 void copy_file(const std::string& source, const std::string& dest);
+void force_link_file(const std::string& source, const std::string& dest);
 
 
 #endif

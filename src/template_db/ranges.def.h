@@ -27,6 +27,11 @@
 template< typename Index >
 Ranges< Index > Ranges< Index >::intersect(const Ranges< Index >& rhs) const
 {
+  if (rhs.is_global())
+    return *this;
+  else if (this->is_global())
+    return rhs;
+  
   Ranges< Index > result;
   auto it_a = data.begin();
   auto it_b = rhs.data.begin();
@@ -85,7 +90,7 @@ Ranges< Index > Ranges< Index >::union_(const Ranges< Index >& rhs) const
     ++it_b;
   }
   
-  result.sort();
+  //result.sort();
   return result;
 }
 
@@ -103,9 +108,34 @@ Ranges< Index > Ranges< Index >::skip_start(Index lower_bound) const
 }
 
 
+#include <iostream>
 template< typename Index >
 void Ranges< Index >::sort()
 {
+//   int order = 0;
+//   uint64_t size = data.size();
+//   while (size)
+//   {
+//     size = size>>1;
+//     ++order;
+//   }
+//   static int count = 0;
+//   static int total = 0;
+//   static std::vector< int > stat;
+//   if (stat.size() <= order)
+//     stat.resize(order+1);
+//   if (data.size() > 2*1024*1024)
+//     ++total;
+//   ++stat[order];
+//   total += data.size();
+//   if (++count % 200 == 0)
+//   {
+//     std::cerr<<"#Ranges::sort "<<count<<' '<<total<<'\n';
+//     for (int i = 0; i < stat.size(); ++i)
+//       std::cerr<<'\t'<<stat[i];
+//     std::cerr<<'\n';
+//   }
+
   std::sort(data.begin(), data.end());
   
   if (!data.empty())

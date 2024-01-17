@@ -51,22 +51,25 @@ class Dispatcher_Client
 
     /** Allocates a write lock. Waits if necessary. */
     void write_start();
+    void migrate_start();
 
     /** Aborts an active writing operation. Results are undefined if it is
         called outside a writing operation. */
     void write_rollback();
+    void migrate_rollback();
 
     /** Commits an active writing operation. Results are undefined if it is
         called outside a writing operation. */
     void write_commit();
+    void migrate_commit();
 
     /** Read operations: --------------------------------------------------- */
 
     /** Request the index for a read operation and registers the reading process.
     Reading the index files should be taking a quick copy, because if any process
     is in this state, write_commits are blocked. */
-    void request_read_and_idx(uint32 max_allowed_time, uint64 max_allowed_space,
-			      uint32 client_token);
+    void request_read_and_idx(
+        uint32 max_allowed_time, uint64 max_allowed_space, uint32 client_token, uint64 request_full_hash);
 
     /** Changes the registered state from reading the index to reading the
     database. Can be safely called multiple times for the same process. */
@@ -91,7 +94,8 @@ class Dispatcher_Client
 
     Client_Status query_my_status(uint32 token);
 
-    void set_global_limits(uint64 max_allowed_space, uint64 max_allowed_time_units, int rate_limit);
+    void set_global_limits(
+        uint64 max_allowed_space, uint64 max_allowed_time_units, int32_t rate_limit, int32_t bit_limits);
 
     /** Called regularly to tell the dispatcher that this process is still alive */
     void ping();

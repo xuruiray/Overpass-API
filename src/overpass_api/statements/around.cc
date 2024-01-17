@@ -330,23 +330,23 @@ void Around_Constraint::filter(const Statement& query, Resource_Manager& rman, S
     Ranges< Uint32_Index > node_ranges;
     get_ranges(rman, node_ranges);
 
-    std::map< Uint32_Index, std::vector< Node_Skeleton > > node_members
-        = relation_node_members(&query, rman, into.relations, node_ranges, {}, true);
+    Timeless< Uint32_Index, Node_Skeleton > node_members
+        = relation_node_members(&query, rman, into.relations, {}, node_ranges, {}, true);
     std::vector< std::pair< Uint32_Index, const Node_Skeleton* > > node_members_by_id
-        = order_by_id(node_members, Order_By_Node_Id());
+        = order_by_id(node_members.current, Order_By_Node_Id());
 
     // Retrieve all ways referred by the relations.
     Ranges< Uint31_Index > way_ranges;
     get_ranges(rman, way_ranges);
 
-    std::map< Uint31_Index, std::vector< Way_Skeleton > > way_members_
-        = relation_way_members(&query, rman, into.relations, way_ranges, {}, true);
+    Timeless< Uint31_Index, Way_Skeleton > way_members_
+        = relation_way_members(&query, rman, into.relations, {}, way_ranges, {}, true);
     std::vector< std::pair< Uint31_Index, const Way_Skeleton* > > way_members_by_id
-        = order_by_id(way_members_, Order_By_Way_Id());
+        = order_by_id(way_members_.current, Order_By_Way_Id());
 
     // Retrieve all nodes referred by the ways.
     filter_relations_expensive(*around, node_members_by_id, way_members_by_id,
-        Way_Geometry_Store(way_members_, query, rman), into.relations);
+        Way_Geometry_Store(way_members_.current, query, rman), into.relations);
   }
 
   if (!into.attic_nodes.empty())
@@ -844,12 +844,12 @@ void Around_Statement::calc_lat_lons(const Set& input, Statement& query, Resourc
   add_ways(input.ways, Way_Geometry_Store(input.ways, query, rman));
 
   // Retrieve all node and way members referred by the relations.
-  add_nodes(relation_node_members(&query, rman, input.relations, Ranges< Uint32_Index >::global(), {}, true));
+  add_nodes(relation_node_members(&query, rman, input.relations, {}, Ranges< Uint32_Index >::global(), {}, true).current);
 
   // Retrieve all ways referred by the relations.
-  std::map< Uint31_Index, std::vector< Way_Skeleton > > way_members
-      = relation_way_members(&query, rman, input.relations, Ranges< Uint31_Index >::global(), {}, true);
-  add_ways(way_members, Way_Geometry_Store(way_members, query, rman));
+  Timeless< Uint31_Index, Way_Skeleton > way_members
+      = relation_way_members(&query, rman, input.relations, {}, Ranges< Uint31_Index >::global(), {}, true);
+  add_ways(way_members.current, Way_Geometry_Store(way_members.current, query, rman));
 
   if (rman.get_desired_timestamp() != NOW)
   {

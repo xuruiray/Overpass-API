@@ -43,20 +43,15 @@ struct Uint32_Index
   Uint32_Index(uint32 i) : value(i) {}
   Uint32_Index(void* data) : value(*(uint32*)data) {}
 
-  uint32 size_of() const
-  {
-    return 4;
-  }
+  static bool equal(void* lhs, void* rhs) { return *(uint32*)lhs == *(uint32*)rhs; }
+  bool less(void* rhs) const { return value < *(uint32*)rhs; }
+  bool leq(void* rhs) const { return value <= *(uint32*)rhs; }
+  bool equal(void* rhs) const { return value == *(uint32*)rhs; }
 
-  static uint32 max_size_of()
-  {
-    return 4;
-  }
-
-  static uint32 size_of(void* data)
-  {
-    return 4;
-  }
+  uint32 size_of() const { return 4; }
+  static constexpr uint32 const_size() { return 4; }
+  static uint32 max_size_of() { return 4; }
+  static uint32 size_of(void* data) { return 4; }
 
   void to_data(void* data) const
   {
@@ -128,12 +123,23 @@ struct Uint31_Index : Uint32_Index
   Uint31_Index(uint32 i) : Uint32_Index(i) {}
   Uint31_Index(void* data) : Uint32_Index(*(uint32*)data) {}
 
+  bool less(void* rhs) const
+  {
+    if ((value & 0x7fffffff) != (*(uint32*)rhs & 0x7fffffff))
+      return (value & 0x7fffffff) < (*(uint32*)rhs & 0x7fffffff);
+    return value < *(uint32*)rhs;
+  }
+  bool leq(void* rhs) const
+  {
+    if ((value & 0x7fffffff) != (*(uint32*)rhs & 0x7fffffff))
+      return (value & 0x7fffffff) < (*(uint32*)rhs & 0x7fffffff);
+    return value <= *(uint32*)rhs;
+  }
+
   bool operator<(const Uint31_Index& index) const
   {
     if ((this->value & 0x7fffffff) != (index.value & 0x7fffffff))
-    {
       return (this->value & 0x7fffffff) < (index.value & 0x7fffffff);
-    }
     return (this->value < index.value);
   }
   
@@ -165,7 +171,13 @@ struct Uint64
   Uint64(uint64 i) : value(i) {}
   Uint64(void* data) : value(*(uint64*)data) {}
 
+  static bool equal(void* lhs, void* rhs) { return *(uint64*)lhs == *(uint64*)rhs; }
+  bool less(void* rhs) const { return value < *(uint64*)rhs; }
+  bool leq(void* rhs) const { return value <= *(uint64*)rhs; }
+  bool equal(void* rhs) const { return value == *(uint32*)rhs; }
+
   uint32 size_of() const { return 8; }
+  static constexpr uint32 const_size() { return 8; }
   static uint32 max_size_of() { return 8; }
   static uint32 size_of(void* data) { return 8; }
 
@@ -203,6 +215,9 @@ struct Uint64
   }
 
   uint64 val() const { return value; }
+  
+  static Uint64 min() { return Uint64(0ull); }
+  static Uint64 max() { return Uint64(0xffffffffffffffffull); }
 
   protected:
     uint64 value;

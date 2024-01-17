@@ -23,11 +23,13 @@
 #include <vector>
 
 #include "../../template_db/block_backend.h"
+#include "../../template_db/block_backend_write.h"
 #include "../../template_db/random_file.h"
 #include "../core/datatypes.h"
 #include "../core/settings.h"
 #include "meta_updater.h"
 #include "relation_updater.h"
+#include "tags_global_writer.h"
 #include "tags_updater.h"
 
 
@@ -124,9 +126,8 @@ std::map< Uint31_Index, std::set< Relation_Skeleton > > get_implicitly_moved_ske
 
   std::map< Uint31_Index, std::set< Relation_Skeleton > > result;
 
-  Block_Backend< Uint31_Index, Relation_Skeleton > db(transaction.data_index(&file_properties));
-  for (Block_Backend< Uint31_Index, Relation_Skeleton >::Discrete_Iterator
-      it(db.discrete_begin(req.begin(), req.end())); !(it == db.discrete_end()); ++it)
+  Block_Backend< Uint31_Index, Relation_Skeleton, std::set< Uint31_Index >::const_iterator > db(transaction.data_index(&file_properties));
+  for (auto it = db.discrete_begin(req.begin(), req.end()); !(it == db.discrete_end()); ++it)
   {
     if (binary_search(known_relation_ids.begin(), known_relation_ids.end(), it.object().id))
       continue;
@@ -316,12 +317,13 @@ void lookup_missing_nodes
   missing_ids.erase(std::unique(missing_ids.begin(), missing_ids.end()), missing_ids.end());
 
   // Collect all data of existing id indexes
-  std::vector< std::pair< Node_Skeleton::Id_Type, Uint31_Index > > existing_map_positions
-      = get_existing_map_positions(missing_ids, transaction, *osm_base_settings().NODES);
+  std::vector< std::pair< Node_Skeleton::Id_Type, Node::Index > > existing_map_positions
+      = get_existing_map_positions< Node::Index, Node_Skeleton::Id_Type >(
+            missing_ids, transaction, *osm_base_settings().NODES);
 
   // Collect all data of existing skeletons
   std::map< Uint32_Index, std::set< Node_Skeleton > > existing_skeletons
-      = get_existing_skeletons< Uint32_Index, Node_Skeleton >
+      = get_existing_skeletons< Node::Index, Node_Skeleton >
       (existing_map_positions, transaction, *osm_base_settings().NODES);
 
   for (std::map< Uint32_Index, std::set< Node_Skeleton > >::const_iterator it = existing_skeletons.begin();
@@ -393,8 +395,9 @@ void lookup_missing_ways
   missing_ids.erase(std::unique(missing_ids.begin(), missing_ids.end()), missing_ids.end());
 
   // Collect all data of existing id indexes
-  std::vector< std::pair< Way_Skeleton::Id_Type, Uint31_Index > > existing_map_positions
-      = get_existing_map_positions(missing_ids, transaction, *osm_base_settings().WAYS);
+  std::vector< std::pair< Way_Skeleton::Id_Type, Way::Index > > existing_map_positions
+      = get_existing_map_positions< Way::Index, Way_Skeleton::Id_Type >(
+          missing_ids, transaction, *osm_base_settings().WAYS);
 
   // Collect all data of existing skeletons
   std::map< Uint31_Index, std::set< Way_Skeleton > > existing_skeletons
@@ -490,7 +493,7 @@ void compute_idx_and_geometry
     (Uint31_Index& idx, Relation_Skeleton& skeleton,
      uint64 expiration_timestamp,
      const std::map< Node_Skeleton::Id_Type,
-         std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > >& nodes_by_id,
+         std::vector< std::pair< Node::Index, Attic< Node_Skeleton > > > >& nodes_by_id,
      const std::map< Way_Skeleton::Id_Type,
          std::vector< std::pair< Uint31_Index, Attic< Way_Skeleton::Id_Type > > > >& ways_by_id)
 {
@@ -502,16 +505,14 @@ void compute_idx_and_geometry
   {
       if (mit->type == Relation_Entry::NODE)
       {
-        std::map< Node_Skeleton::Id_Type, std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > >
-            ::const_iterator nit = nodes_by_id.find(Node_Skeleton::Id_Type(mit->ref.val()));
+        auto nit = nodes_by_id.find(Node_Skeleton::Id_Type(mit->ref.val()));
         if (nit != nodes_by_id.end() && !nit->second.empty())
         {
-          std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > >::const_iterator
-              it2 = nit->second.begin();
+          auto it2 = nit->second.begin();
           while (it2 != nit->second.end() && it2->second.timestamp < expiration_timestamp)
             ++it2;
           if (it2 != nit->second.end())
-            node_idxs.push_back(it2->first);
+            node_idxs.push_back(Uint31_Index(it2->first.val()));
           // Otherwise the node has expired before our relation - something has gone wrong seriously.
         }
         else
@@ -569,7 +570,7 @@ Relation_Skeleton add_intermediate_versions
     (const Relation_Skeleton& skeleton, const Relation_Skeleton& reference,
      const uint64 old_timestamp, const uint64 new_timestamp,
      const std::map< Node_Skeleton::Id_Type,
-         std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > >& nodes_by_id,
+         std::vector< std::pair< Node::Index, Attic< Node_Skeleton > > > >& nodes_by_id,
      const std::map< Way_Skeleton::Id_Type,
          std::vector< std::pair< Uint31_Index, Attic< Way_Skeleton::Id_Type > > > >& ways_by_id,
      bool add_last_version, Uint31_Index attic_idx, Uint31_Index& last_idx,
@@ -583,12 +584,10 @@ Relation_Skeleton add_intermediate_versions
   {
     if (mit->type == Relation_Entry::NODE)
     {
-      std::map< Node_Skeleton::Id_Type, std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > >
-          ::const_iterator nit = nodes_by_id.find(Node_Skeleton::Id_Type(mit->ref.val()));
+      auto nit = nodes_by_id.find(Node_Skeleton::Id_Type(mit->ref.val()));
       if (nit != nodes_by_id.end() && !nit->second.empty())
       {
-        for (std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > >::const_iterator
-            it2 = nit->second.begin(); it2 != nit->second.end(); ++it2)
+        for (auto it2 = nit->second.begin(); it2 != nit->second.end(); ++it2)
         {
           if (old_timestamp < it2->second.timestamp && it2->second.timestamp <= new_timestamp)
             relevant_timestamps.push_back(it2->second.timestamp);
@@ -689,11 +688,11 @@ Relation_Skeleton add_intermediate_versions
 void add_intermediate_changelog_entries
     (const Relation_Skeleton& skeleton, const uint64 old_timestamp, const uint64 new_timestamp,
      const std::map< Node_Skeleton::Id_Type,
-         std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > >& nodes_by_id,
+         std::vector< std::pair< Node::Index, Attic< Node_Skeleton > > > >& nodes_by_id,
      const std::map< Way_Skeleton::Id_Type,
          std::vector< std::pair< Uint31_Index, Attic< Way_Skeleton::Id_Type > > > >& ways_by_id,
      bool add_last_version, Uint31_Index attic_idx, Uint31_Index new_idx,
-     std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > >& result)
+     std::map< Timestamp, std::vector< Relation_Skeleton::Id_Type > >& result)
 {
   std::vector< uint64 > relevant_timestamps;
   for (std::vector< Relation_Entry >::const_iterator mit = skeleton.members.begin();
@@ -701,12 +700,10 @@ void add_intermediate_changelog_entries
   {
     if (mit->type == Relation_Entry::NODE)
     {
-      std::map< Node_Skeleton::Id_Type, std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > >
-          ::const_iterator nit = nodes_by_id.find(Node_Skeleton::Id_Type(mit->ref.val()));
+      auto nit = nodes_by_id.find(Node_Skeleton::Id_Type(mit->ref.val()));
       if (nit != nodes_by_id.end() && !nit->second.empty())
       {
-        for (std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > >::const_iterator
-            it2 = nit->second.begin(); it2 != nit->second.end(); ++it2)
+        for (auto it2 = nit->second.begin(); it2 != nit->second.end(); ++it2)
         {
           if (old_timestamp < it2->second.timestamp && it2->second.timestamp <= new_timestamp)
             relevant_timestamps.push_back(it2->second.timestamp);
@@ -757,18 +754,12 @@ void add_intermediate_changelog_entries
     compute_idx_and_geometry(idx, last_skeleton, new_timestamp, nodes_by_id, ways_by_id);
   idxs.push_back(idx);
 
-  int i = 0;
   for (std::vector< uint64 >::const_iterator it = relevant_timestamps.begin();
        it != relevant_timestamps.end(); ++it)
-  {
-    result[Timestamp(*it)].insert(
-        Change_Entry< Relation_Skeleton::Id_Type >(skeleton.id, idxs[i], idxs[i+1]));
-    ++i;
-  }
+    result[Timestamp(*it)].push_back(skeleton.id);
 
   if (add_last_version)
-    result[Timestamp(new_timestamp)].insert(
-        Change_Entry< Relation_Skeleton::Id_Type >(skeleton.id, idx, new_idx));
+    result[Timestamp(new_timestamp)].push_back(skeleton.id);
 }
 
 
@@ -815,7 +806,7 @@ void compute_new_attic_skeletons
      const std::map< Relation_Skeleton::Id_Type, std::pair< Uint31_Index, Attic< Relation_Delta > > >&
          existing_attic_skeleton_timestamps,
      const std::map< Node_Skeleton::Id_Type, Quad_Coord >& new_node_idx_by_id,
-     const std::map< Uint31_Index, std::set< Attic< Node_Skeleton > > >& new_attic_node_skeletons,
+     const std::map< Node::Index, std::set< Attic< Node_Skeleton > > >& new_attic_node_skeletons,
      const std::map< Way_Skeleton::Id_Type, Uint31_Index >& new_way_idx_by_id,
      const std::map< Uint31_Index, std::set< Attic< Way_Delta > > >& new_attic_way_skeletons,
      std::map< Uint31_Index, std::set< Attic< Relation_Delta > > >& full_attic,
@@ -825,7 +816,7 @@ void compute_new_attic_skeletons
 {
   // Fill nodes_by_id from attic nodes as well as the current nodes in new_node_idx_by_id
   std::map< Node_Skeleton::Id_Type,
-         std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > > nodes_by_id
+         std::vector< std::pair< Node::Index, Attic< Node_Skeleton > > > > nodes_by_id
          = collect_nodes_by_id(new_attic_node_skeletons, new_node_idx_by_id);
 
   // Fill ways_by_id from attic ways as well as the current ways in new_way_idx_by_id
@@ -954,22 +945,22 @@ void compute_new_attic_skeletons
 /* Compares the new data and the already existing skeletons to determine those that have
  * moved. This information is used to prepare the std::set of elements to store to attic.
  * We use that in attic_skeletons can only appear elements with ids that exist also in new_data. */
-std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > > compute_changelog(
+std::map< Timestamp, std::vector< Relation_Skeleton::Id_Type > > compute_changelog(
     const Data_By_Id< Relation_Skeleton >& new_data,
     const std::map< Uint31_Index, std::set< Relation_Skeleton > >& implicitly_moved_skeletons,
     const std::vector< std::pair< Relation_Skeleton::Id_Type, Uint31_Index > >& existing_map_positions,
     const std::vector< std::pair< Relation_Skeleton::Id_Type, Uint31_Index > >& attic_map_positions,
     const std::map< Uint31_Index, std::set< Relation_Skeleton > >& attic_skeletons,
     const std::map< Node_Skeleton::Id_Type, Quad_Coord >& new_node_idx_by_id,
-    const std::map< Uint31_Index, std::set< Attic< Node_Skeleton > > >& new_attic_node_skeletons,
+    const std::map< Node::Index, std::set< Attic< Node_Skeleton > > >& new_attic_node_skeletons,
     const std::map< Way_Skeleton::Id_Type, Uint31_Index >& new_way_idx_by_id,
     const std::map< Uint31_Index, std::set< Attic< Way_Delta > > >& new_attic_way_skeletons)
 {
-  std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > > result;
+  std::map< Timestamp, std::vector< Relation_Skeleton::Id_Type > > result;
 
   // Fill nodes_by_id from attic nodes as well as the current nodes in new_node_idx_by_id
   std::map< Node_Skeleton::Id_Type,
-         std::vector< std::pair< Uint31_Index, Attic< Node_Skeleton > > > > nodes_by_id
+         std::vector< std::pair< Node::Index, Attic< Node_Skeleton > > > > nodes_by_id
          = collect_nodes_by_id(new_attic_node_skeletons, new_node_idx_by_id);
 
   // Fill ways_by_id from attic ways as well as the current ways in new_way_idx_by_id
@@ -1019,8 +1010,7 @@ std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > > co
     if (!idx)
     {
       // No old data exists.
-      result[it->meta.timestamp].insert(
-          Change_Entry< Relation_Skeleton::Id_Type >(it->elem.id, 0u, next_idx));
+      result[it->meta.timestamp].push_back(it->elem.id);
       continue;
     }
 
@@ -1055,9 +1045,9 @@ std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > > co
 
 
 void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu_stopwatch,
-              const std::map< Uint32_Index, std::set< Node_Skeleton > >& new_node_skeletons,
-              const std::map< Uint32_Index, std::set< Node_Skeleton > >& attic_node_skeletons,
-              const std::map< Uint31_Index, std::set< Attic< Node_Skeleton > > >& new_attic_node_skeletons,
+              const std::map< Node::Index, std::set< Node_Skeleton > >& new_node_skeletons,
+              const std::map< Node::Index, std::set< Node_Skeleton > >& attic_node_skeletons,
+              const std::map< Node::Index, std::set< Attic< Node_Skeleton > > >& new_attic_node_skeletons,
               const std::map< Uint31_Index, std::set< Way_Skeleton > >& new_way_skeletons,
               const std::map< Uint31_Index, std::set< Way_Skeleton > >& attic_way_skeletons,
               const std::map< Uint31_Index, std::set< Attic< Way_Delta > > >& new_attic_way_skeletons)
@@ -1078,7 +1068,8 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
 
   // Collect all data of existing id indexes
   std::vector< std::pair< Relation_Skeleton::Id_Type, Uint31_Index > > existing_map_positions
-      = get_existing_map_positions(ids_to_update_, *transaction, *osm_base_settings().RELATIONS);
+      = get_existing_map_positions< Relation::Index, Relation_Skeleton::Id_Type >(
+          ids_to_update_, *transaction, *osm_base_settings().RELATIONS);
 
   // Collect all data of existing and explicitly changed skeletons
   std::map< Uint31_Index, std::set< Relation_Skeleton > > existing_skeletons
@@ -1093,27 +1084,27 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
 
   // Collect all data of existing meta elements
   std::map< Uint31_Index, std::set< OSM_Element_Metadata_Skeleton< Relation::Id_Type > > > existing_meta
-      = (meta ? get_existing_meta< OSM_Element_Metadata_Skeleton< Relation::Id_Type > >
+      = (meta ? get_existing_meta< Relation::Index, OSM_Element_Metadata_Skeleton< Relation::Id_Type > >
              (existing_map_positions, *transaction, *meta_settings().RELATIONS_META) :
          std::map< Uint31_Index, std::set< OSM_Element_Metadata_Skeleton< Relation::Id_Type > > >());
 
   // Collect all data of existing meta elements
   std::vector< std::pair< Relation_Skeleton::Id_Type, Uint31_Index > > implicitly_moved_positions
       = make_id_idx_directory(implicitly_moved_skeletons);
-  std::map< Uint31_Index, std::set< OSM_Element_Metadata_Skeleton< Relation::Id_Type > > > implicitly_moved_meta
-      = (meta ? get_existing_meta< OSM_Element_Metadata_Skeleton< Relation::Id_Type > >
+  std::map< Relation::Index, std::set< OSM_Element_Metadata_Skeleton< Relation::Id_Type > > > implicitly_moved_meta
+      = (meta ? get_existing_meta< Relation::Index, OSM_Element_Metadata_Skeleton< Relation::Id_Type > >
              (implicitly_moved_positions, *transaction, *meta_settings().RELATIONS_META) :
-         std::map< Uint31_Index, std::set< OSM_Element_Metadata_Skeleton< Relation::Id_Type > > >());
+         std::map< Relation::Index, std::set< OSM_Element_Metadata_Skeleton< Relation::Id_Type > > >());
 
   // Collect all data of existing tags
   std::vector< Tag_Entry< Relation_Skeleton::Id_Type > > existing_local_tags;
-  get_existing_tags< Relation_Skeleton::Id_Type >
+  get_existing_tags< Relation::Index, Relation_Skeleton::Id_Type >
       (existing_map_positions, *transaction->data_index(osm_base_settings().RELATION_TAGS_LOCAL),
        existing_local_tags);
 
   // Collect all data of existing tags for moved relations
   std::vector< Tag_Entry< Relation_Skeleton::Id_Type > > implicitly_moved_local_tags;
-  get_existing_tags< Relation_Skeleton::Id_Type >
+  get_existing_tags< Relation::Index, Relation_Skeleton::Id_Type >
       (implicitly_moved_positions, *transaction->data_index(osm_base_settings().RELATION_TAGS_LOCAL),
        implicitly_moved_local_tags);
 
@@ -1159,13 +1150,9 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
   // Compute which tags really have changed
   std::map< Tag_Index_Local, std::set< Relation_Skeleton::Id_Type > > attic_local_tags;
   std::map< Tag_Index_Local, std::set< Relation_Skeleton::Id_Type > > new_local_tags;
-  new_current_local_tags< Relation_Skeleton, Relation_Skeleton::Id_Type >
+  new_current_local_tags< Relation::Index, Relation_Skeleton, Relation_Skeleton::Id_Type >
       (new_data, existing_map_positions, existing_local_tags, attic_local_tags, new_local_tags);
   new_implicit_local_tags(implicitly_moved_local_tags, new_positions, attic_local_tags, new_local_tags);
-  std::map< Tag_Index_Global, std::set< Tag_Object_Global< Relation_Skeleton::Id_Type > > > attic_global_tags;
-  std::map< Tag_Index_Global, std::set< Tag_Object_Global< Relation_Skeleton::Id_Type > > > new_global_tags;
-  new_current_global_tags< Relation_Skeleton::Id_Type >
-      (attic_local_tags, new_local_tags, attic_global_tags, new_global_tags);
 
   add_deleted_skeletons(attic_skeletons, new_positions);
 
@@ -1191,8 +1178,14 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
   callback->tags_local_finished();
 
   // Update global tags
-  update_elements(attic_global_tags, new_global_tags, *transaction, *osm_base_settings().RELATION_TAGS_GLOBAL);
-  callback->tags_global_finished();
+  {
+    std::map< Tag_Index_Global, std::set< Tag_Object_Global< Relation_Skeleton::Id_Type > > > attic_global_tags;
+    std::map< Tag_Index_Global, std::vector< Tag_Object_Global< Relation_Skeleton::Id_Type > > > new_global_tags;
+    new_current_global_tags< Relation_Skeleton::Id_Type >
+        (attic_local_tags, new_local_tags, attic_global_tags, new_global_tags);
+    update_current_global_tags< Relation_Skeleton >(attic_global_tags, new_global_tags, *transaction);
+    callback->tags_global_finished();
+  }
 
   flush_roles();
   callback->flush_roles_finished();
@@ -1209,10 +1202,11 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
 
     // Collect all data of existing attic id indexes
     std::vector< std::pair< Relation_Skeleton::Id_Type, Uint31_Index > > existing_attic_map_positions
-        = get_existing_map_positions(ids_to_update_, *transaction, *attic_settings().RELATIONS);
+        = get_existing_map_positions< Relation::Index, Relation_Skeleton::Id_Type >(
+            ids_to_update_, *transaction, *attic_settings().RELATIONS);
     std::map< Relation_Skeleton::Id_Type, std::set< Uint31_Index > > existing_idx_lists
-        = get_existing_idx_lists(ids_to_update_, existing_attic_map_positions,
-                                 *transaction, *attic_settings().RELATION_IDX_LIST);
+        = get_existing_idx_lists< Uint31_Index, Relation_Skeleton::Id_Type >(
+            ids_to_update_, existing_attic_map_positions, *transaction, *attic_settings().RELATION_IDX_LIST);
 
     // Collect known change times of attic elements. This allows that
     // for each object no older version than the youngest known attic version can be written
@@ -1247,11 +1241,9 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
         = compute_new_attic_local_tags(new_attic_idx_by_id_and_time,
             compute_tags_by_id_and_time(new_data, attic_local_tags),
                                        existing_map_positions, existing_idx_lists);
-    std::map< Tag_Index_Global, std::set< Attic< Tag_Object_Global< Relation_Skeleton::Id_Type > > > >
-        new_attic_global_tags = compute_attic_global_tags(new_attic_local_tags);
 
     // Compute changelog
-    std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > > changelog
+    std::map< Timestamp, std::vector< Relation_Skeleton::Id_Type > > changelog
         = compute_changelog(new_data, implicitly_moved_skeletons,
                             existing_map_positions, existing_attic_map_positions, attic_skeletons,
                             new_node_idx_by_id, new_attic_node_skeletons,
@@ -1287,13 +1279,14 @@ void Relation_Updater::update(Osm_Backend_Callback* callback, Cpu_Stopwatch* cpu
     // Update tags
     update_elements(std::map< Tag_Index_Local, std::set< Attic < Relation_Skeleton::Id_Type > > >(),
                     new_attic_local_tags, *transaction, *attic_settings().RELATION_TAGS_LOCAL);
-    update_elements(std::map< Tag_Index_Global,
-                        std::set< Attic < Tag_Object_Global< Relation_Skeleton::Id_Type > > > >(),
-                    new_attic_global_tags, *transaction, *attic_settings().RELATION_TAGS_GLOBAL);
+    {
+      std::map< Tag_Index_Global, std::vector< Attic< Tag_Object_Global< Relation_Skeleton::Id_Type > > > >
+          new_attic_global_tags = compute_attic_global_tags(new_attic_local_tags);
+      update_attic_global_tags< Relation_Skeleton >({}, std::move(new_attic_global_tags), *transaction);
+    }
 
     // Write changelog
-    update_elements(std::map< Timestamp, std::set< Change_Entry< Relation_Skeleton::Id_Type > > >(), changelog,
-                    *transaction, *attic_settings().RELATION_CHANGELOG);
+    update_elements({}, changelog, *transaction, *attic_settings().RELATION_CHANGELOG);
 
     flush_roles();
   }

@@ -17,8 +17,10 @@
  */
 
 #include "dispatcher_stub.h"
+#include "../frontend/hash_request.h"
 #include "../frontend/user_interface.h"
 #include "../statements/statement_dump.h"
+#include "../../expat/escape_json.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -39,7 +41,7 @@
 #include <vector>
 
 
-std::string de_escape(std::string input)
+std::string de_escape(const std::string& input)
 {
   std::string result;
   std::string::size_type pos = 0;
@@ -88,11 +90,13 @@ void set_limits(uint32 time, uint64 space)
 
 
 Dispatcher_Stub::Dispatcher_Stub
-    (std::string db_dir_, Error_Output* error_output_, std::string xml_raw,
+    (std::string db_dir_, Error_Output* error_output_, const std::string& xml_raw,
      int area_level, uint32 max_allowed_time, uint64 max_allowed_space, Parsed_Query& global_settings)
     : db_dir(db_dir_), error_output(error_output_),
       dispatcher_client(0), area_dispatcher_client(0),
-      transaction(0), area_transaction(0), rman(0), client_token(0)
+      transaction(0), area_transaction(0), rman(0),
+      full_hash(hash(sanitize_string(xml_raw, false))),
+      anon_hash(hash(sanitize_string(xml_raw, true))), client_token(0)
 {
   if (max_allowed_time > 0)
     set_limits(2*max_allowed_time + 60, 2*max_allowed_space + 1024*1024*1024);
@@ -100,13 +104,18 @@ Dispatcher_Stub::Dispatcher_Stub
   if (db_dir == "")
   {
     client_token = probe_client_token();
+    client_identifier = probe_client_identifier();
+    if (client_identifier.empty())
+      client_identifier = "::";
     dispatcher_client = new Dispatcher_Client(osm_base_settings().shared_name);
-    Logger logger(dispatcher_client->get_db_dir());
+    Logger db_logger(dispatcher_client->get_db_dir());
+    Logger client_logger(dispatcher_client->get_db_dir(), basic_settings().client_logfile_name);
+    client_logger.annotated_log("requesting " + escape_cstr(xml_raw));
     try
     {
-      logger.annotated_log("request_read_and_idx() start");
-      dispatcher_client->request_read_and_idx(max_allowed_time, max_allowed_space, client_token);
-      logger.annotated_log("request_read_and_idx() end");
+      db_logger.annotated_log("request_read_and_idx() start");
+      dispatcher_client->request_read_and_idx(max_allowed_time, max_allowed_space, client_token, full_hash);
+      db_logger.annotated_log("request_read_and_idx() end");
     }
     catch (const File_Error& e)
     {
@@ -114,8 +123,8 @@ Dispatcher_Stub::Dispatcher_Stub
       out<<e.origin<<' '<<e.filename<<' '<<e.error_number<<' '<<strerror(e.error_number);
       if (e.origin == "Dispatcher_Client::request_read_and_idx::rate_limited"
           || e.origin == "Dispatcher_Client::request_read_and_idx::timeout")
-	out<<' '<<probe_client_identifier();
-      logger.annotated_log(out.str());
+	out<<' '<<std::hex<<anon_hash<<' '<<full_hash<<' '<<std::dec<<client_token<<' '<<client_identifier;
+      client_logger.annotated_log(out.str());
       throw;
     }
     transaction = new Nonsynced_Transaction
@@ -140,16 +149,15 @@ Dispatcher_Stub::Dispatcher_Stub
     }
     try
     {
-      logger.annotated_log("read_idx_finished() start");
+      db_logger.annotated_log("read_idx_finished() start");
       dispatcher_client->read_idx_finished();
-      logger.annotated_log("read_idx_finished() end");
-      logger.annotated_log('\n' + xml_raw);
+      db_logger.annotated_log("read_idx_finished() end");
     }
     catch (const File_Error& e)
     {
       std::ostringstream out;
       out<<e.origin<<' '<<e.filename<<' '<<e.error_number<<' '<<strerror(e.error_number);
-      logger.annotated_log(out.str());
+      db_logger.annotated_log(out.str());
       throw;
     }
 
@@ -162,15 +170,18 @@ Dispatcher_Stub::Dispatcher_Stub
       {
 	try
 	{
-          logger.annotated_log("request_read_and_idx() area start");
-	  area_dispatcher_client->request_read_and_idx(max_allowed_time, max_allowed_space, client_token);
-          logger.annotated_log("request_read_and_idx() area end");
+          db_logger.annotated_log("request_read_and_idx() area start");
+	  area_dispatcher_client->request_read_and_idx(max_allowed_time, max_allowed_space, client_token, full_hash);
+          db_logger.annotated_log("request_read_and_idx() area end");
         }
 	catch (const File_Error& e)
 	{
 	  std::ostringstream out;
 	  out<<e.origin<<' '<<e.filename<<' '<<e.error_number<<' '<<strerror(e.error_number);
-	  logger.annotated_log(out.str());
+          if (e.origin == "Dispatcher_Client::request_read_and_idx::rate_limited"
+              || e.origin == "Dispatcher_Client::request_read_and_idx::timeout")
+            out<<' '<<std::hex<<anon_hash<<' '<<full_hash<<' '<<std::dec<<client_token<<' '<<client_identifier;
+	  client_logger.annotated_log(out.str());
 	  throw;
 	}
 	area_transaction = new Nonsynced_Transaction
@@ -186,15 +197,15 @@ Dispatcher_Stub::Dispatcher_Stub
       {
 	try
 	{
-	  logger.annotated_log("write_start() area start");
+	  db_logger.annotated_log("write_start() area start");
 	  area_dispatcher_client->write_start();
-	  logger.annotated_log("write_start() area end");
+	  db_logger.annotated_log("write_start() area end");
 	}
 	catch (const File_Error& e)
 	{
 	  std::ostringstream out;
 	  out<<e.origin<<' '<<e.filename<<' '<<e.error_number<<' '<<strerror(e.error_number);
-	  logger.annotated_log(out.str());
+	  db_logger.annotated_log(out.str());
 	  throw;
 	}
 	area_transaction = new Nonsynced_Transaction
@@ -216,15 +227,15 @@ Dispatcher_Stub::Dispatcher_Stub
       {
 	try
 	{
-          logger.annotated_log("read_idx_finished() area start");
+          db_logger.annotated_log("read_idx_finished() area start");
           area_dispatcher_client->read_idx_finished();
-          logger.annotated_log("read_idx_finished() area end");
+          db_logger.annotated_log("read_idx_finished() area end");
 	}
 	catch (const File_Error& e)
 	{
 	  std::ostringstream out;
 	  out<<e.origin<<' '<<e.filename<<' '<<e.error_number<<' '<<strerror(e.error_number);
-	  logger.annotated_log(out.str());
+	  db_logger.annotated_log(out.str());
 	  throw;
 	}
       }
@@ -352,22 +363,25 @@ Dispatcher_Stub::~Dispatcher_Stub()
     delete area_transaction;
   if (dispatcher_client)
   {
-    Logger logger(dispatcher_client->get_db_dir());
+    Logger db_logger(dispatcher_client->get_db_dir());
+    Logger client_logger(dispatcher_client->get_db_dir(), basic_settings().client_logfile_name);
     try
     {
       std::ostringstream out;
-      out<<"read_finished() start "<<client_token<<' '<<global_read_counter();
+      out<<"read_finished "<<std::hex<<anon_hash<<' '<<full_hash<<' '
+          <<std::dec<<client_token<<' '<<client_identifier<<' '<<global_read_counter();
       for (std::vector< uint64 >::const_iterator it = cpu_runtime.begin(); it != cpu_runtime.end(); ++it)
         out<<' '<<*it;
-      logger.annotated_log(out.str());
+      client_logger.annotated_log(out.str());
+      db_logger.annotated_log("read_finished() start");
       dispatcher_client->read_finished();
-      logger.annotated_log("read_finished() end");
+      db_logger.annotated_log("read_finished() end");
     }
     catch (const File_Error& e)
     {
       std::ostringstream out;
       out<<e.origin<<' '<<e.filename<<' '<<e.error_number<<' '<<strerror(e.error_number);
-      logger.annotated_log(out.str());
+      db_logger.annotated_log(out.str());
     }
     delete dispatcher_client;
   }

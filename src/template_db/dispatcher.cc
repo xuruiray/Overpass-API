@@ -30,6 +30,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -37,12 +38,10 @@
 #include <vector>
 
 
-Dispatcher_Socket::Dispatcher_Socket
-    (const std::string& dispatcher_share_name,
-     const std::string& shadow_name_,
-     const std::string& db_dir_,
-     uint max_num_reading_processes)
-  : socket("", max_num_reading_processes)
+Dispatcher_Socket::Dispatcher_Socket(
+    const std::string& dispatcher_share_name, const std::string& db_dir_,
+    uint max_num_reading_processes, uint max_num_socket_clients)
+  : socket("", max_num_reading_processes), open_socket_limit(max_num_socket_clients)
 {
   signal(SIGPIPE, SIG_IGN);
 
@@ -65,22 +64,20 @@ Dispatcher_Socket::~Dispatcher_Socket()
 
 void Dispatcher_Socket::look_for_a_new_connection(Connection_Per_Pid_Map& connection_per_pid)
 {
-  struct sockaddr_un sockaddr_un_dummy;
-  uint sockaddr_un_dummy_size = sizeof(sockaddr_un_dummy);
-  int socket_fd = accept(socket.descriptor(), (sockaddr*)&sockaddr_un_dummy,
-			 (socklen_t*)&sockaddr_un_dummy_size);
-  if (socket_fd == -1)
+  if (started_connections.size() + connection_per_pid.size() < open_socket_limit)
   {
-    if (errno != EAGAIN && errno != EWOULDBLOCK)
-      throw File_Error
-	    (errno, "(socket)", "Dispatcher_Server::6");
-  }
-  else
-  {
-    if (fcntl(socket_fd, F_SETFL, O_RDWR|O_NONBLOCK) == -1)
-      throw File_Error
-	    (errno, "(socket)", "Dispatcher_Server::7");
-    started_connections.push_back(socket_fd);
+    int socket_fd = accept(socket.descriptor(), NULL, NULL);
+    if (socket_fd == -1)
+    {
+      if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EMFILE)
+        throw File_Error(errno, "(socket)", "Dispatcher_Server::6");
+    }
+    else
+    {
+      if (fcntl(socket_fd, F_SETFL, O_RDWR|O_NONBLOCK) == -1)
+        throw File_Error(errno, "(socket)", "Dispatcher_Server::7");
+      started_connections.push_back(socket_fd);
+    }
   }
 
   // associate to a new connection the pid of the sender
@@ -94,7 +91,7 @@ void Dispatcher_Socket::look_for_a_new_connection(Connection_Per_Pid_Map& connec
     else
     {
       if (bytes_read != 0)
-	connection_per_pid.set(pid, new Blocking_Client_Socket(*it));
+	connection_per_pid.insert(pid, *it);
       else
 	close(*it);
 
@@ -369,27 +366,105 @@ void Global_Resource_Planner::purge(Connection_Per_Pid_Map& connection_per_pid)
 }
 
 
-Dispatcher::Dispatcher
-    (std::string dispatcher_share_name_,
-     std::string index_share_name,
-     std::string shadow_name_,
-     std::string db_dir_,
-     uint max_num_reading_processes_, uint purge_timeout_,
-     uint64 total_available_space_,
-     uint64 total_available_time_units_,
-     const std::vector< File_Properties* >& controlled_files_,
-     Dispatcher_Logger* logger_)
-    : socket(dispatcher_share_name_, shadow_name_, db_dir_, max_num_reading_processes_),
-      transaction_insulator(db_dir_, controlled_files_),
+struct Hash_of_Running_Request
+{
+  uint64_t hash;
+  time_t expires;
+};
+
+
+struct Running_Requests_Hashtable
+{
+  Running_Requests_Hashtable() : data(65536) {}
+  uint64_t size() const
+  {
+    uint64_t sum = 0;
+    for (const auto& i : data)
+      sum += i.capacity();
+    return sum;
+  }
+  
+  bool probe(const Hash_of_Running_Request& arg);
+
+private:
+  std::vector< std::vector< Hash_of_Running_Request > > data;
+};
+
+
+bool Running_Requests_Hashtable::probe(const Hash_of_Running_Request& arg)
+{
+  auto& bucket = data[(arg.hash ^ (arg.hash>>16)) & 0xffff];
+  time_t now = time(0);
+  uint num_hits = 0;
+  uint num_expired = 0;
+  for (auto& i : bucket)
+  {
+    num_expired += (i.expires < now);
+    num_hits += (i.hash == arg.hash && now <= i.expires);
+  }
+  
+  if (bucket.size() + 4 < 2*num_expired)
+  {
+    for (decltype(bucket.size()) i = 0; i < bucket.size(); ++i)
+    {
+      if (bucket[i].expires < now)
+      {
+        bucket[i] = bucket.back();
+        bucket.pop_back();
+      }
+    }
+  }
+
+  if (num_hits >= 2)
+  {
+    for (auto& i : bucket)
+    {
+      if (i.hash == arg.hash)
+        i.expires = std::max(i.expires, now + 900);
+    }
+    return false;
+  }
+
+  if (num_expired > 0)
+  {
+    for (auto& i : bucket)
+    {
+      if (i.expires < now)
+        i = arg;
+    }
+  }
+  else
+    bucket.push_back(arg);
+  
+  return true;
+}
+
+
+Dispatcher::Dispatcher(
+    const std::string& dispatcher_share_name_,
+    const std::string& index_share_name, const std::string& shadow_name_,
+    const std::string& db_dir_, const std::string& socket_dir,
+    uint max_num_reading_processes_, uint max_num_socket_clients, uint purge_timeout_,
+    uint64 total_available_space_, uint64 total_available_time_units_,
+    const std::vector< File_Properties* >& controlled_files_,
+    Dispatcher_Logger* logger_)
+    : socket(dispatcher_share_name_, socket_dir.empty() ? db_dir_ : socket_dir,
+          max_num_reading_processes_, max_num_socket_clients),
+      transaction_insulator(db_dir_, controlled_files_), writing_process(0),
       shadow_name(shadow_name_),
       dispatcher_share_name(dispatcher_share_name_),
       logger(logger_),
       pending_commit(false),
+      terminate_countdown(TERMINATE_COUNTDOWN_START),
       requests_started_counter(0),
       requests_finished_counter(0),
-      global_resource_planner(total_available_time_units_, total_available_space_, 0)
+      requests_load_rejected(0),
+      requests_rate_limited(0),
+      requests_as_duplicate_rejected(0),
+      global_resource_planner(total_available_time_units_, total_available_space_, 0, false)
 {
   signal(SIGPIPE, SIG_IGN);
+  signal(SIGTERM, sigterm);
 
   if (shadow_name.substr(0, 1) != "/")
     shadow_name = getcwd() + shadow_name_;
@@ -435,7 +510,13 @@ Dispatcher::Dispatcher
     transaction_insulator.copy_shadows_to_mains();
     remove(shadow_name.c_str());
   }
+  else if (file_exists(shadow_name + ".next"))
+  {
+    transaction_insulator.move_migrated_files_in_place();
+    remove((shadow_name + ".next").c_str());
+  }
   transaction_insulator.remove_shadows();
+  transaction_insulator.remove_migrated();
   remove((shadow_name + ".lock").c_str());
   transaction_insulator.set_current_footprints();
 }
@@ -445,6 +526,30 @@ Dispatcher::~Dispatcher()
 {
   munmap((void*)dispatcher_shm_ptr, SHM_SIZE + transaction_insulator.db_dir().size() + shadow_name.size());
   shm_unlink(dispatcher_share_name.c_str());
+}
+
+void try_write_pid_to_lockfile(const std::string& shadow_name, pid_t pid)
+{
+  try
+  {
+    std::ofstream lock((shadow_name + ".lock").c_str());
+    lock<<pid;
+  }
+  catch (...) {}
+}
+
+
+void confirm_lockfile_or_show_error(const File_Error& e, const std::string& shadow_name, pid_t pid)
+{
+  if ((e.error_number == EEXIST) && (e.filename == (shadow_name + ".lock")))
+  {
+    pid_t locked_pid;
+    std::ifstream lock((shadow_name + ".lock").c_str());
+    lock>>locked_pid;
+    if (locked_pid == pid)
+      return;
+  }
+  std::cerr<<"File_Error "<<e.error_number<<' '<<strerror(e.error_number)<<' '<<e.filename<<' '<<e.origin<<'\n';
 }
 
 
@@ -458,33 +563,35 @@ void Dispatcher::write_start(pid_t pid)
     transaction_insulator.copy_mains_to_shadows();
     transaction_insulator.write_index_of_empty_blocks();
     if (logger)
-    {
-      std::set< ::pid_t > registered = transaction_insulator.registered_pids();
-      std::vector< Dispatcher_Logger::pid_t > registered_v;
-      registered_v.assign(registered.begin(), registered.end());
-      logger->write_start(pid, registered_v);
-    }
+      logger->write_start(pid, transaction_insulator.registered_pids());
   }
   catch (File_Error e)
   {
-    if ((e.error_number == EEXIST) && (e.filename == (shadow_name + ".lock")))
-    {
-      pid_t locked_pid;
-      std::ifstream lock((shadow_name + ".lock").c_str());
-      lock>>locked_pid;
-      if (locked_pid == pid)
-	return;
-    }
-    std::cerr<<"File_Error "<<e.error_number<<' '<<strerror(e.error_number)<<' '<<e.filename<<' '<<e.origin<<'\n';
+    confirm_lockfile_or_show_error(e, shadow_name, pid);
     return;
   }
+  writing_process = pid;
+  try_write_pid_to_lockfile(shadow_name, pid);
+}
 
+
+void Dispatcher::migrate_start(pid_t pid)
+{
+  // Lock the writing lock file for the client.
   try
   {
-    std::ofstream lock((shadow_name + ".lock").c_str());
-    lock<<pid;
+    Raw_File shadow_file(shadow_name + ".lock", O_RDWR|O_CREAT|O_EXCL, S_666, "write_start:1");
+
+    if (logger)
+      logger->migrate_start(pid, transaction_insulator.registered_pids());
   }
-  catch (...) {}
+  catch (File_Error e)
+  {
+    confirm_lockfile_or_show_error(e, shadow_name, pid);
+    return;
+  }
+  writing_process = pid;
+  try_write_pid_to_lockfile(shadow_name, pid);
 }
 
 
@@ -494,26 +601,43 @@ void Dispatcher::write_rollback(pid_t pid)
     logger->write_rollback(pid);
   transaction_insulator.remove_shadows();
   remove((shadow_name + ".lock").c_str());
+  writing_process = 0;
 }
 
 
-void Dispatcher::write_commit(pid_t pid)
+void Dispatcher::migrate_rollback(pid_t pid)
+{
+  if (logger)
+    logger->write_rollback(pid);
+  transaction_insulator.remove_migrated();
+  remove((shadow_name + ".lock").c_str());
+  writing_process = 0;
+}
+
+
+bool Dispatcher::get_lock_for_idx_change(pid_t pid)
 {
   if (!processes_reading_idx.empty())
   {
     pending_commit = true;
     if (logger)
       logger->write_pending(pid, processes_reading_idx);
-    return;
+    return false;
   }
   pending_commit = false;
+  return true;
+}
 
+
+void Dispatcher::write_commit(pid_t pid)
+{
+  if (!get_lock_for_idx_change(pid))
+    return;
   if (logger)
     logger->write_commit(pid);
   try
   {
     Raw_File shadow_file(shadow_name, O_RDWR|O_CREAT|O_EXCL, S_666, "write_commit:1");
-
     transaction_insulator.copy_shadows_to_mains();
   }
   catch (File_Error e)
@@ -526,6 +650,32 @@ void Dispatcher::write_commit(pid_t pid)
   transaction_insulator.remove_shadows();
   remove((shadow_name + ".lock").c_str());
   transaction_insulator.set_current_footprints();
+  writing_process = 0;
+}
+
+
+void Dispatcher::migrate_commit(pid_t pid)
+{
+  if (!get_lock_for_idx_change(pid))
+    return;
+  if (logger)
+    logger->migrate_commit(pid);
+  try
+  {
+    Raw_File shadow_file(shadow_name + ".next", O_RDWR|O_CREAT|O_EXCL, S_666, "write_commit:1");
+    transaction_insulator.move_migrated_files_in_place();
+  }
+  catch (File_Error e)
+  {
+    std::cerr<<"File_Error "<<e.error_number<<' '<<strerror(e.error_number)<<' '<<e.filename<<' '<<e.origin<<'\n';
+    return;
+  }
+
+  remove((shadow_name + ".next").c_str());
+  transaction_insulator.remove_migrated();
+  remove((shadow_name + ".lock").c_str());
+  transaction_insulator.set_current_footprints();
+  writing_process = 0;
 }
 
 
@@ -594,15 +744,21 @@ void Dispatcher::standby_loop(uint64 milliseconds)
 {
   uint32 counter = 0;
   uint32 idle_counter = 0;
+  Running_Requests_Hashtable hashtable_full_request;
+  
   while ((milliseconds == 0) || (counter < milliseconds/100))
   {
+    if (sigterm_status() == Signal_Status::received)
+    {
+      sigterm_status() = Signal_Status::processed;
+      break;
+    }
+
     socket.look_for_a_new_connection(connection_per_pid);
 
     uint32 command = 0;
     uint32 client_pid = 0;
     connection_per_pid.poll_command_round_robin(command, client_pid);
-//     if (pending_commit)
-//       std::cout<<"poll "<<command<<' '<<client_pid<<'\n';
 
     if (command == 0)
     {
@@ -618,53 +774,61 @@ void Dispatcher::standby_loop(uint64 milliseconds)
 	logger->idle_counter(idle_counter);
       idle_counter = 0;
     }
-
+    
     try
     {
-      if (command == TERMINATE || command == OUTPUT_STATUS)
+      if (command == TERMINATE)
       {
-	if (command == OUTPUT_STATUS)
-	  output_status();
-
-	connection_per_pid.get(client_pid)->send_result(command);
-	connection_per_pid.set(client_pid, 0);
-
-	if (command == TERMINATE)
-	  break;
+        connection_per_pid.get(client_pid)->send_result(command);
+        connection_per_pid.erase(client_pid);
+        break;
       }
-      else if (command == WRITE_START || command == WRITE_ROLLBACK || command == WRITE_COMMIT)
+      else if (command == OUTPUT_STATUS)
       {
-	if (command == WRITE_START)
-	{
-	  global_resource_planner.purge(connection_per_pid);
-	  write_start(client_pid);
-	}
-	else if (command == WRITE_COMMIT)
-	{
-	  global_resource_planner.purge(connection_per_pid);
-	  write_commit(client_pid);
-	}
-	else if (command == WRITE_ROLLBACK)
-	  write_rollback(client_pid);
+        output_status();
 
-	connection_per_pid.get(client_pid)->send_result(command);
+        connection_per_pid.get(client_pid)->send_result(command);
+        connection_per_pid.erase(client_pid);
       }
-      else if (command == HANGUP || command == READ_FINISHED)
+      else if (command == WRITE_START || command == WRITE_COMMIT
+          || command == MIGRATE_START || command == MIGRATE_COMMIT)
       {
-	if (command == HANGUP)
-        {
-          if (processes_reading_idx.find(client_pid) != processes_reading_idx.end()
-              || global_resource_planner.is_active(client_pid))
-            read_aborted(client_pid);
-          else
-            hangup(client_pid);
-        }
-	else if (command == READ_FINISHED)
-	{
-	  read_finished(client_pid);
-	  connection_per_pid.get(client_pid)->send_result(command);
-	}
-	connection_per_pid.set(client_pid, 0);
+        global_resource_planner.purge(connection_per_pid);
+        if (command == WRITE_START)
+          write_start(client_pid);
+        else if (command == WRITE_COMMIT)
+          write_commit(client_pid);
+        else if (command == MIGRATE_START)
+          migrate_start(client_pid);
+        else
+          migrate_commit(client_pid);
+
+        connection_per_pid.get(client_pid)->send_result(command);
+      }
+      else if (command == WRITE_ROLLBACK || command == MIGRATE_ROLLBACK)
+      {
+        if (command == WRITE_ROLLBACK)
+          write_rollback(client_pid);
+        else
+          migrate_rollback(client_pid);
+
+        connection_per_pid.get(client_pid)->send_result(command);
+      }
+      else if (command == HANGUP)
+      {
+        if (processes_reading_idx.find(client_pid) != processes_reading_idx.end()
+            || global_resource_planner.is_active(client_pid))
+          read_aborted(client_pid);
+        else
+          hangup(client_pid);
+
+        connection_per_pid.erase(client_pid);
+      }
+      else if (command == READ_FINISHED)
+      {
+        read_finished(client_pid);
+        connection_per_pid.get(client_pid)->send_result(command);
+        connection_per_pid.erase(client_pid);
       }
       else if (command == READ_IDX_FINISHED)
       {
@@ -674,40 +838,52 @@ void Dispatcher::standby_loop(uint64 milliseconds)
       }
       else if (command == REQUEST_READ_AND_IDX)
       {
-	std::vector< uint32 > arguments = connection_per_pid.get(client_pid)->get_arguments(4);
-	if (arguments.size() < 4)
-	{
-	  connection_per_pid.get(client_pid)->send_result(0);
-	  continue;
-	}
-	uint32 max_allowed_time = arguments[0];
-	uint64 max_allowed_space = (((uint64)arguments[2])<<32 | arguments[1]);
-	uint32 client_token = arguments[3];
+        std::vector< uint32 > arguments = connection_per_pid.get(client_pid)->get_arguments(6);
+        if (arguments.size() < 4 || pending_commit)
+        {
+          connection_per_pid.get(client_pid)->send_result(PROTOCOL_INVALID);
+          continue;
+        }
 
-	if (pending_commit)
-	{
-	  connection_per_pid.get(client_pid)->send_result(0);
-	  continue;
-	}
+        uint32 max_allowed_time = arguments[0];
+        uint64 max_allowed_space = (((uint64)arguments[2])<<32 | arguments[1]);
+        uint32 client_token = arguments[3];
+        uint64 request_full_hash = (((uint64)arguments[5])<<32 | arguments[4]);
+        
+        if (global_resource_planner.get_allow_duplicate_queries() ||
+            hashtable_full_request.probe({ request_full_hash, time(0) + max_allowed_time }))
+        {
+          command = global_resource_planner.probe(client_pid, client_token, max_allowed_time, max_allowed_space);
+          if (command == REQUEST_READ_AND_IDX)
+            request_read_and_idx(client_pid, max_allowed_time, max_allowed_space, client_token);
+          else if (command == QUERY_REJECTED)
+            ++requests_load_rejected;
+          else if (command == RATE_LIMITED)
+            ++requests_rate_limited;
+        }
+        else
+        {
+          command = DUPLICATE_QUERY;
+          ++requests_as_duplicate_rejected;
+        }
 
-	command = global_resource_planner.probe(client_pid, client_token, max_allowed_time, max_allowed_space);
-	if (command == REQUEST_READ_AND_IDX)
-	  request_read_and_idx(client_pid, max_allowed_time, max_allowed_space, client_token);
-
-	connection_per_pid.get(client_pid)->send_result(command);
+        connection_per_pid.get(client_pid)->send_result(command);
       }
       else if (command == PURGE)
       {
 	std::vector< uint32 > arguments = connection_per_pid.get(client_pid)->get_arguments(1);
 	if (arguments.size() < 1)
+        {
+          connection_per_pid.get(client_pid)->clear_state();
 	  continue;
+        }
 	uint32 target_pid = arguments[0];
 
 	read_aborted(target_pid);
         if (connection_per_pid.get(target_pid) != 0)
         {
 	  connection_per_pid.get(target_pid)->send_result(READ_FINISHED);
-	  connection_per_pid.set(target_pid, 0);
+	  connection_per_pid.erase(target_pid);
         }
 
 	connection_per_pid.get(client_pid)->send_result(command);
@@ -716,7 +892,10 @@ void Dispatcher::standby_loop(uint64 milliseconds)
       {
 	std::vector< uint32 > arguments = connection_per_pid.get(client_pid)->get_arguments(1);
 	if (arguments.size() < 1)
+        {
+          connection_per_pid.get(client_pid)->clear_state();
 	  continue;
+        }
 	uint32 target_token = arguments[0];
 
 	pid_t target_pid = 0;
@@ -776,13 +955,17 @@ void Dispatcher::standby_loop(uint64 milliseconds)
       }
       else if (command == SET_GLOBAL_LIMITS)
       {
-	std::vector< uint32 > arguments = connection_per_pid.get(client_pid)->get_arguments(5);
-	if (arguments.size() < 5)
+	std::vector< uint32 > arguments = connection_per_pid.get(client_pid)->get_arguments(6);
+	if (arguments.size() < 6)
+        {
+          connection_per_pid.get(client_pid)->clear_state();
 	  continue;
+        }
 
 	uint64 new_total_available_space = (((uint64)arguments[1])<<32 | arguments[0]);
 	uint64 new_total_available_time_units = (((uint64)arguments[3])<<32 | arguments[2]);
-        int rate_limit_ = arguments[4];
+        int32_t rate_limit_ = arguments[4];
+        int32_t bit_limits = arguments[5];
 
 	if (new_total_available_space > 0)
 	  global_resource_planner.set_total_available_space(new_total_available_space);
@@ -790,6 +973,8 @@ void Dispatcher::standby_loop(uint64 milliseconds)
 	  global_resource_planner.set_total_available_time(new_total_available_time_units);
         if (rate_limit_ > -1)
           global_resource_planner.set_rate_limit(rate_limit_);
+        if (bit_limits & 0x2)
+          global_resource_planner.set_allow_duplicate_queries(bit_limits & 0x1);
 
 	connection_per_pid.get(client_pid)->send_result(command);
       }
@@ -807,6 +992,55 @@ void Dispatcher::standby_loop(uint64 milliseconds)
       *(uint32*)dispatcher_shm_ptr = 0;
     }
   }
+
+  if (milliseconds == 0 || counter < milliseconds/100)
+  {
+    if (logger)
+      logger->terminate_triggered(terminate_countdown, writing_process);
+    if (writing_process)
+      kill(writing_process, SIGTERM);
+
+    if (idle_counter > 0 && logger)
+      logger->idle_counter(idle_counter);
+  }
+
+  while (writing_process && terminate_countdown &&
+      (milliseconds == 0 || counter < milliseconds/100))
+  {
+    uint32 command = 0;
+    uint32 client_pid = 0;
+    connection_per_pid.poll_command_round_robin(command, client_pid);
+    
+    try
+    {
+      if (command == WRITE_ROLLBACK)
+      {
+        write_rollback(client_pid);
+        connection_per_pid.get(client_pid)->send_result(command);
+      }
+      else if (command == MIGRATE_ROLLBACK)
+      {
+        migrate_rollback(client_pid);
+        connection_per_pid.get(client_pid)->send_result(command);
+      }
+      millisleep(10);
+    }
+    catch (File_Error e)
+    {
+      std::cerr<<"File_Error "<<e.error_number<<' '<<strerror(e.error_number)<<' '<<e.filename<<' '<<e.origin<<'\n';
+
+      counter += 30;
+      millisleep(3000);
+
+      // Set command state to zero.
+      *(uint32*)dispatcher_shm_ptr = 0;
+    }
+
+    --terminate_countdown;
+  }
+  
+  if (logger && (milliseconds == 0 || counter < milliseconds/100))
+    logger->terminate_triggered(terminate_countdown, writing_process);
 }
 
 
@@ -817,7 +1051,7 @@ void Dispatcher::output_status()
     std::ofstream status((shadow_name + ".status").c_str());
 
     status<<"Number of not yet opened connections: "<<socket.num_started_connections()<<'\n'
-        <<"Number of connected clients: "<<connection_per_pid.base_map().size()<<'\n'
+        <<"Number of connected clients: "<<connection_per_pid.size()<<'\n'
         <<"Rate limit: "<<global_resource_planner.get_rate_limit()<<'\n'
         <<"Total available space: "<<global_resource_planner.get_total_available_space()<<'\n'
         <<"Total claimed space: "<<global_resource_planner.get_total_claimed_space()<<'\n'
@@ -826,36 +1060,36 @@ void Dispatcher::output_status()
         <<"Total claimed time units: "<<global_resource_planner.get_total_claimed_time()<<'\n'
         <<"Average claimed time units: "<<global_resource_planner.get_average_claimed_time()<<'\n'
         <<"Counter of started requests: "<<requests_started_counter<<'\n'
-        <<"Counter of finished requests: "<<requests_finished_counter<<'\n';
+        <<"Counter of finished requests: "<<requests_finished_counter<<'\n'
+        <<"Counter of load shedded requests: "<<requests_load_rejected<<'\n'
+        <<"Counter of rate limited requests: "<<requests_rate_limited<<'\n'
+        <<"Counter of as duplicate rejected requests: "<<requests_as_duplicate_rejected<<'\n';
 
-    std::set< ::pid_t > collected_pids = transaction_insulator.registered_pids();
+    auto collected_pids = transaction_insulator.registered_pids();
 
-    for (std::vector< Reader_Entry >::const_iterator it = global_resource_planner.get_active().begin();
-	 it != global_resource_planner.get_active().end(); ++it)
+    for (const auto& i : global_resource_planner.get_active())
     {
-      if (processes_reading_idx.find(it->client_pid) != processes_reading_idx.end())
-	status<<REQUEST_READ_AND_IDX;
+      if (processes_reading_idx.find(i.client_pid) != processes_reading_idx.end())
+        status<<REQUEST_READ_AND_IDX;
       else
-	status<<READ_IDX_FINISHED;
-      status<<' '<<it->client_pid<<' '<<it->client_token<<' '
-          <<it->max_space<<' '<<it->max_time<<' '<<it->start_time<<'\n';
+        status<<READ_IDX_FINISHED;
+      status<<' '<<i.client_pid<<' '<<i.client_token<<' '
+          <<i.max_space<<' '<<i.max_time<<' '<<i.start_time<<'\n';
 
-      collected_pids.insert(it->client_pid);
+      collected_pids.push_back(i.client_pid);
     }
+    std::sort(collected_pids.begin(), collected_pids.end());
+    collected_pids.erase(std::unique(collected_pids.begin(), collected_pids.end()), collected_pids.end());
 
-    for (std::map< pid_t, Blocking_Client_Socket* >::const_iterator it = connection_per_pid.base_map().begin();
-	 it != connection_per_pid.base_map().end(); ++it)
+    for (auto i : connection_per_pid)
     {
-      if (processes_reading_idx.find(it->first) == processes_reading_idx.end()
-	  && collected_pids.find(it->first) == collected_pids.end())
-	status<<"pending\t"<<it->first<<'\n';
+      if (processes_reading_idx.find(i.first) == processes_reading_idx.end()
+          && std::binary_search(collected_pids.begin(), collected_pids.end(), i.first))
+        status<<"pending\t"<<i.first<<'\n';
     }
 
-    for (std::vector< Quota_Entry >::const_iterator it = global_resource_planner.get_afterwards().begin();
-	 it != global_resource_planner.get_afterwards().end(); ++it)
-    {
-      status<<"quota\t"<<it->client_token<<' '<<it->expiration_time<<'\n';
-    }
+    for (const auto& i : global_resource_planner.get_afterwards())
+      status<<"quota\t"<<i.client_token<<' '<<i.expiration_time<<'\n';
   }
   catch (...) {}
 }

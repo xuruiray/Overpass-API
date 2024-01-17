@@ -300,36 +300,36 @@ void Area_Constraint::filter(const Statement& query, Resource_Manager& rman, Set
   // Retrieve all nodes referred by the relations.
   Ranges< Uint32_Index > node_ranges;
   get_ranges(rman, node_ranges);
-  std::map< Uint32_Index, std::vector< Node_Skeleton > > node_members
-      = relation_node_members(&query, rman, into.relations, node_ranges, {}, true);
+  Timeless< Uint32_Index, Node_Skeleton > node_members
+      = relation_node_members(&query, rman, into.relations, {}, node_ranges, {}, true);
 
   // filter for those nodes that are in one of the areas
   {
     std::map< Uint32_Index, std::vector< Node_Skeleton > > nodes_in_wr_areas
-        = nodes_contained_in(input, false, query, rman, node_members);
-    indexed_set_difference(node_members, nodes_in_wr_areas);
-    area->collect_nodes(node_members, area_blocks_req, false, rman);
-    indexed_set_union(node_members, nodes_in_wr_areas);
+        = nodes_contained_in(input, false, query, rman, node_members.current);
+    indexed_set_difference(node_members.current, nodes_in_wr_areas);
+    area->collect_nodes(node_members.current, area_blocks_req, false, rman);
+    indexed_set_union(node_members.current, nodes_in_wr_areas);
   } 
 
   // Retrieve all ways referred by the relations.
   Ranges< Uint31_Index > way_ranges;
   get_ranges(rman, way_ranges);
-  std::map< Uint31_Index, std::vector< Way_Skeleton > > way_members_
-      = relation_way_members(&query, rman, into.relations, way_ranges, {}, true);
+  Timeless< Uint31_Index, Way_Skeleton > way_members_
+      = relation_way_members(&query, rman, into.relations, {}, way_ranges, {}, true);
 
   // Filter for those ways that are in one of the areas
   {
     std::map< Uint31_Index, std::vector< Way_Skeleton > > ways_in_wr_areas
-        = ways_contained_in(input, query, rman, way_members_);
-    indexed_set_difference(way_members_, ways_in_wr_areas);
-    area->collect_ways(Way_Geometry_Store(way_members_, query, rman),
-        way_members_, area_blocks_req, false, query, rman);
-    indexed_set_union(way_members_, ways_in_wr_areas);
+        = ways_contained_in(input, query, rman, way_members_.current);
+    indexed_set_difference(way_members_.current, ways_in_wr_areas);
+    area->collect_ways(Way_Geometry_Store(way_members_.current, query, rman),
+        way_members_.current, area_blocks_req, false, query, rman);
+    indexed_set_union(way_members_.current, ways_in_wr_areas);
   }
 
-  filter_relations_expensive(order_by_id(node_members, Order_By_Node_Id()),
-			     order_by_id(way_members_, Order_By_Way_Id()),
+  filter_relations_expensive(order_by_id(node_members.current, Order_By_Node_Id()),
+			     order_by_id(way_members_.current, Order_By_Way_Id()),
 			     into.relations);
 
   //Process nodes
@@ -570,9 +570,9 @@ void Area_Query_Statement::collect_nodes
      const std::set< Uint31_Index >& req, bool add_border,
      Resource_Manager& rman)
 {
-  Block_Backend< Uint31_Index, Area_Block > area_blocks_db
+  Block_Backend< Uint31_Index, Area_Block, std::set< Uint31_Index >::const_iterator > area_blocks_db
       (rman.get_area_transaction()->data_index(area_settings().AREA_BLOCKS));
-  Block_Backend< Uint31_Index, Area_Block >::Discrete_Iterator
+  Block_Backend< Uint31_Index, Area_Block, std::set< Uint31_Index >::const_iterator >::Discrete_Iterator
       area_it(area_blocks_db.discrete_begin(req.begin(), req.end()));
 
   typename std::map< Uint32_Index, std::vector< Node_Skeleton > >::iterator nodes_it = nodes.begin();
@@ -832,9 +832,9 @@ void Area_Query_Statement::collect_ways
        const std::set< Uint31_Index >& req, bool add_border,
        const Statement& query, Resource_Manager& rman)
 {
-  Block_Backend< Uint31_Index, Area_Block > area_blocks_db
+  Block_Backend< Uint31_Index, Area_Block, std::set< Uint31_Index >::const_iterator > area_blocks_db
       (rman.get_area_transaction()->data_index(area_settings().AREA_BLOCKS));
-  Block_Backend< Uint31_Index, Area_Block >::Discrete_Iterator
+  Block_Backend< Uint31_Index, Area_Block, std::set< Uint31_Index >::const_iterator >::Discrete_Iterator
       area_it(area_blocks_db.discrete_begin(req.begin(), req.end()));
 
   std::map< Way::Id_Type, bool > ways_inside;

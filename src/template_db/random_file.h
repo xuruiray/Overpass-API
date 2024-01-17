@@ -90,13 +90,46 @@ Random_File< Key, Value >::~Random_File()
 }
 
 
+/**
+   *
+   *    custom id format & compress :
+   *         1(无用) 01(客户+地区) 0000(无用) 200 0000 0001(客户+地区内唯一ID)
+   *                            ↓
+   *         01(客户+地区) 200 0000 0001(客户+地区内唯一ID)
+   *
+   *    id range:
+   *        custom id:          100,000,000,000,000,000 - 199,000,099,999,999,999
+   *        compress custom:    0,000,000,000,000 - 9,999,999,999,999
+   *        tomtom id:          100,000,000,000 - 110,000,000,000
+   *        osrm:               0 - 20,000,000,000 （目前 osrm 地图数据最大ID的两倍）
+   *
+   *    pos range
+   *        custom id:             0 - 152,587,890
+   *        custom id add offset:  0 - 137,331,198 (custom id + 2,000,000) // 防止和 tomtom ID / OSRM ID 冲突
+   *        tomtom id:             1,525,902 - 1,678,493
+   *        osrm id:               0 - 305,181
+   *
+   *        uint32 max = 4294,967,295
+   *        uint64 max = 18446744073709551615
+   *
+   * */
+
+
 template< typename Key, typename Value >
 Value Random_File< Key, Value >::get(Key pos)
 {
-  move_cache_window(pos.val() / (block_size*compression_factor /index_size));
-  return Value(cache.ptr + (pos.val() % (block_size*compression_factor/index_size))*index_size);
+    if (pos.val() >= 100000000000000000){
+        uint64 k = pos.val() % 100000000000000000;    // 去掉第一位
+        uint64 code = k / 1000000000000000;                    // 找到 客户+地区 编码
+        uint64 oid = k - code * 1000000000000000;              // 客户+地区 内的唯一 ID
+        k = code * 100000000000 + oid;                         // 去掉四个零，补上客户编码
+        move_cache_window(k / (block_size*compression_factor/index_size) + 2000000);
+        return Value(cache.ptr + (k % (block_size*compression_factor/index_size))*index_size);
+    }else{
+        move_cache_window(pos.val() / (block_size*compression_factor/index_size));
+        return Value(cache.ptr + (pos.val() % (block_size*compression_factor/index_size))*index_size);
+    }
 }
-
 
 template< typename Key, typename Value >
 void Random_File< Key, Value >::put(Key pos, const Value& val)
@@ -104,8 +137,17 @@ void Random_File< Key, Value >::put(Key pos, const Value& val)
   if (!index->writeable())
     throw File_Error(0, index->get_map_file_name(), "Random_File:2");
 
-  move_cache_window(pos.val() / (block_size*compression_factor/index_size));
-  val.to_data(cache.ptr + (pos.val() % (block_size*compression_factor/index_size))*index_size);
+  if (pos.val() >= 100000000000000000){
+      uint64 k = pos.val() % 100000000000000000;    // 去掉第一位
+      uint64 code = k / 1000000000000000;                    // 找到 客户+地区 编码
+      uint64 oid = k - code * 1000000000000000;              // 客户+地区 内的唯一 ID
+      k = code * 100000000000 + oid;                         // 去掉四个零，补上客户编码
+      move_cache_window(k / (block_size*compression_factor/index_size) + 2000000);
+      val.to_data(cache.ptr + (k % (block_size*compression_factor/index_size))*index_size);
+  }else{
+      move_cache_window(pos.val() / (block_size*compression_factor/index_size));
+      val.to_data(cache.ptr + (pos.val() % (block_size*compression_factor/index_size))*index_size);
+  }
   changed = true;
 }
 
@@ -117,8 +159,9 @@ void Random_File< Key, Value >::move_cache_window(uint32 pos)
   if ((pos == cache_pos) && (cache_pos != index->npos))
     return;
 
-  if (pos != index->npos && pos >= 256*1024*1024/Value::max_size_of())
-    throw File_Error(0, index->get_map_file_name(), "Random_File: id too large for map file");
+  // 199000099999999999 -> 9999999999999 -> 9999999999999 / 65536 -> 152587890.6249847 超出了自定义 ID 最大值
+  if (pos != index->npos && pos >= 154587890)
+    throw File_Error(0, index->get_map_file_name(), "Random_File: id too large for map file: " + std::to_string(pos));
 
   if (changed)
   {
